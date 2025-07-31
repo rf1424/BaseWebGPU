@@ -15,6 +15,27 @@
 
 using namespace wgpu;
 
+const char* shaderSource = R"(
+@vertex
+fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4f {
+	var p = vec2f(0.0, 0.0);
+
+	if (in_vertex_index == 0u) {
+		p = vec2f(-0.5, -0.5);
+	} else if (in_vertex_index == 1u) {
+		p = vec2f(0.5, -0.5);
+	} else {
+		p = vec2f(0.0, 0.5);
+	}
+	return vec4f(p, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4f {
+	return vec4f(0.0, 0.5, 1.0, 1.0);
+}
+)";
+
 class Application {
 public:
     
@@ -25,8 +46,11 @@ public:
     void MainLoop();
 
     bool IsRunning();
+
+    
 private: 
     TextureView GetNextSurfaceTextureView();
+    void InitializePipeline();
 
 private:
     GLFWwindow* window;
@@ -34,6 +58,8 @@ private:
     Queue queue;
     Surface surface;
     std::unique_ptr<ErrorCallback> uncapturedErrorCallbackHandle; // TODO
+    RenderPipeline pipeline;
+    TextureFormat surfaceFormat = TextureFormat::Undefined;
 
     // RenderPipeline pipeline;
 };
@@ -152,8 +178,6 @@ bool Application::Initialize() {
         }
     );
 
-    // inspectDevice(device);
-
     //QUEUE OPERATIONS ----------------------------------------------------------------------------------------------
     queue = device.getQueue();
 
@@ -166,7 +190,7 @@ bool Application::Initialize() {
     // flag as to-be used for render output
     config.usage = TextureUsage::RenderAttachment;
     // use format of the surface (from adapter)
-    TextureFormat surfaceFormat = surface.getPreferredFormat(adapter);
+    surfaceFormat = surface.getPreferredFormat(adapter);
     config.format = surfaceFormat;
     // no view formats
     config.viewFormatCount = 0;
@@ -181,10 +205,14 @@ bool Application::Initialize() {
 
     // after getting device & surface config
     adapter.release();
+
+    InitializePipeline();
+
     return true;
 }
 
 void Application::Terminate() {
+    pipeline.release();
     surface.unconfigure();
     queue.release();
     surface.release();
@@ -230,6 +258,8 @@ void Application::MainLoop() {
 
     // get access to commands for rendering (pass the descriptor)
     RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
+    renderPass.setPipeline(pipeline);
+    renderPass.draw(3, 1, 0, 0);
     renderPass.end();
     renderPass.release();
 
@@ -240,10 +270,10 @@ void Application::MainLoop() {
     CommandBuffer command = encoder.finish(cmdBufferDescriptor);
     encoder.release();
 
-    std::cout << "Submitting render command..." << std::endl;
+    // std::cout << "Submitting render command..." << std::endl;
     queue.submit(1, &command);
     command.release();
-    std::cout << "Command render submitted." << std::endl;
+    // std::cout << "Command render submitted." << std::endl;
 
     // release at end
     targetView.release();
@@ -297,6 +327,72 @@ TextureView Application::GetNextSurfaceTextureView() {
 #endif // WEBGPU_BACKEND_WGPU
 
     return targetView;
+}
+
+void Application::InitializePipeline() {
+    RenderPipelineDescriptor pipelineDesc;
+
+    // create shader module
+    ShaderModuleDescriptor shaderDesc;
+    ShaderModuleWGSLDescriptor shaderCodeDesc;
+    shaderCodeDesc.chain.next = nullptr;
+    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor;
+    // Connect 
+    shaderDesc.nextInChain = &shaderCodeDesc.chain;
+    shaderCodeDesc.code = shaderSource;
+    ShaderModule shaderModule = device.createShaderModule(shaderDesc);
+
+    // 0. Vertex pipeline state
+    pipelineDesc.vertex.bufferCount = 0; // no buffer yet
+    pipelineDesc.vertex.buffers = nullptr;
+
+    // shader contains: shader module, entry point
+    pipelineDesc.vertex.module = shaderModule;
+    pipelineDesc.vertex.entryPoint = "vs_main";
+    pipelineDesc.vertex.constantCount = 0;
+    pipelineDesc.vertex.constants = nullptr;
+
+    // 1. Primitive pipeline state (primitive assembly and rasterization)
+    pipelineDesc.primitive.topology = PrimitiveTopology::TriangleList;
+    pipelineDesc.primitive.stripIndexFormat = IndexFormat::Undefined; // consider vertices sequentially
+    pipelineDesc.primitive.frontFace = FrontFace::CCW; // Front if vertices increment CCW
+    pipelineDesc.primitive.cullMode = WGPUCullMode_None; // no CULL yet: TODO
+
+    // 2. Fragment shader state
+    FragmentState fragmentState;
+    fragmentState.module = shaderModule;
+    fragmentState.entryPoint = "fs_main";
+    fragmentState.constantCount = 0;
+    fragmentState.constants = nullptr;
+    // configure blending stage
+    BlendState blendState;
+    // rgb = a_s * rgb_s + (1 - a_s) * rgb_d
+    blendState.color.srcFactor = BlendFactor::SrcAlpha;
+    blendState.color.dstFactor = BlendFactor::OneMinusSrcAlpha;
+    blendState.color.operation = BlendOperation::Add;
+
+    ColorTargetState colorTarget;
+    colorTarget.format = surfaceFormat;
+    colorTarget.blend = &blendState;
+    colorTarget.writeMask = ColorWriteMask::All;
+
+    fragmentState.targetCount = 1;
+    fragmentState.targets = &colorTarget;
+
+    pipelineDesc.fragment = &fragmentState;
+
+    // 3. Stencil/depth state
+    pipelineDesc.depthStencil = nullptr;
+
+    // Multi-sample 
+    pipelineDesc.multisample.count = 1; // off for now
+    pipelineDesc.multisample.mask = ~0u;
+    pipelineDesc.multisample.alphaToCoverageEnabled = false;
+    // ask backend to figure out the layout itself by inspecting the shader
+    pipelineDesc.layout = nullptr;
+
+    pipeline = device.createRenderPipeline(pipelineDesc);
+    shaderModule.release();
 }
 
 
