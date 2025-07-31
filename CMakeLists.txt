@@ -1,5 +1,3 @@
-
-
 cmake_minimum_required(VERSION 3.0...3.25)
 project(
     BaseWebGPU # name of project / VS solution
