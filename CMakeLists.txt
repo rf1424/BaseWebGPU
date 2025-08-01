@@ -42,9 +42,9 @@ set_target_properties(App PROPERTIES
 # have as many warning as possible for now
 if (MSVC)
         target_compile_options(App PRIVATE /W4)
-    else()
+else()
         target_compile_options(App PRIVATE -Wall -Wextra -pedantic)
-    endif()
+endif()
 
 # Enable the use of emscripten_sleep()
 target_link_options(App PRIVATE -sASYNCIFY)

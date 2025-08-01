@@ -61,7 +61,8 @@ private:
     RenderPipeline pipeline;
     TextureFormat surfaceFormat = TextureFormat::Undefined;
 
-    // RenderPipeline pipeline;
+    Buffer buffer1;
+    Buffer buffer2;
 };
 
 int main() {
@@ -208,10 +209,74 @@ bool Application::Initialize() {
 
     InitializePipeline();
 
+    // Buffer practice
+    
+// buffer 1 
+    BufferDescriptor bufferDesc;
+    bufferDesc.label = "Buffer 0";
+    bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::CopySrc;
+    bufferDesc.size = 16;
+    bufferDesc.mappedAtCreation = false;
+    buffer1 = device.createBuffer(bufferDesc);
+// buffer 2
+    bufferDesc.label = "Output buffer";
+    bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::MapRead; // NOTE: BufferUsage::MapRead not compatible with BufferUsage::CopySrc
+    buffer2 = device.createBuffer(bufferDesc);
+// write to buffer 1
+    std::vector<uint8_t> numbers(16);
+    for (uint8_t i = 0; i < 16; ++i) numbers[i] = i * 2;
+    queue.writeBuffer(buffer1, 0, numbers.data(), numbers.size());
+// copy data from buffer 1 to buffer 2
+    CommandEncoder encoder = device.createCommandEncoder(Default);
+    encoder.copyBufferToBuffer(buffer1, 0, buffer2, 0, 16); // uint8_t is 1 byte * 16
+    CommandBuffer command = encoder.finish(Default);
+    encoder.release();
+    queue.submit(1, &command);
+    command.release();
+// read buffer back from GPU (buffer 2) -> CPU and print
+    struct Context {
+        bool ready;
+        Buffer bufferMapped;
+    };
+    
+    auto onBuffer2Mapped = [](WGPUBufferMapAsyncStatus status, void* pUserData) {
+        std::cout << "Buffer 2 mapped with status " << status << std::endl;
+        Context* context = reinterpret_cast<Context*>(pUserData);
+        context->ready = true;
+        
+        uint8_t * bufferData = (uint8_t*)context->bufferMapped.getConstMappedRange(0, 16);
+
+        std::cout << "bufferData = [";
+
+        for (int i = 0; i < 16; ++i) {
+            if (i > 0) std::cout << ", ";
+            std::cout << (int)bufferData[i];
+        }
+        std::cout << "]" << std::endl;
+
+        // Then do not forget to unmap the memory
+        context->bufferMapped.unmap();
+        };
+
+    Context context = { false, buffer2 };
+    wgpuBufferMapAsync(buffer2, MapMode::Read, 0, 16, onBuffer2Mapped, (void*)(& context));
+    
+    while (!context.ready) {
+        device.tick();
+    }
+    std::cout << "ready now" << std::endl;
+
+// [...] Release buffers
+    buffer1.release();
+    buffer2.release();
     return true;
 }
 
 void Application::Terminate() {
+    // temp buffers
+    /*buffer1.release();
+    buffer2.release();*/
+
     pipeline.release();
     surface.unconfigure();
     queue.release();
@@ -333,12 +398,11 @@ void Application::InitializePipeline() {
     RenderPipelineDescriptor pipelineDesc;
 
     // create shader module
-    ShaderModuleDescriptor shaderDesc;
-    ShaderModuleWGSLDescriptor shaderCodeDesc;
+    ShaderModuleDescriptor shaderDesc; // main description
+    ShaderModuleWGSLDescriptor shaderCodeDesc; // additional, chained description for WGSL
     shaderCodeDesc.chain.next = nullptr;
-    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor;
-    // Connect 
-    shaderDesc.nextInChain = &shaderCodeDesc.chain;
+    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor; // set to WGSL
+    shaderDesc.nextInChain = &shaderCodeDesc.chain; // connect additional to main via CHAIN
     shaderCodeDesc.code = shaderSource;
     ShaderModule shaderModule = device.createShaderModule(shaderDesc);
 
@@ -347,10 +411,17 @@ void Application::InitializePipeline() {
     pipelineDesc.vertex.buffers = nullptr;
 
     // shader contains: shader module, entry point
-    pipelineDesc.vertex.module = shaderModule;
-    pipelineDesc.vertex.entryPoint = "vs_main";
-    pipelineDesc.vertex.constantCount = 0;
-    pipelineDesc.vertex.constants = nullptr;
+    VertexState vertexState;
+    vertexState.module = shaderModule;
+    vertexState.entryPoint = "vs_main";
+    vertexState.entryPoint = 0;
+    vertexState.constants = nullptr;
+    //pipelineDesc.vertex.module = shaderModule;
+    //pipelineDesc.vertex.entryPoint = "vs_main";
+    //pipelineDesc.vertex.constantCount = 0;
+    //pipelineDesc.vertex.constants = nullptr;
+
+    pipelineDesc.vertex = vertexState;
 
     // 1. Primitive pipeline state (primitive assembly and rasterization)
     pipelineDesc.primitive.topology = PrimitiveTopology::TriangleList;
