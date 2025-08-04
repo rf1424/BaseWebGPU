@@ -16,14 +16,27 @@
 using namespace wgpu;
 
 const char* shaderSource = R"(
+
+struct VertexInput {
+    @location(0) position: vec2f,
+    @location(1) color: vec3f
+};
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) color: vec3f
+};
+
 @vertex
-fn vs_main(@location(0) in_vertex_position: vec2f) -> @builtin(position) vec4f {
-	return vec4f(in_vertex_position, 0.0, 1.0);
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var o : VertexOutput;
+    o.position = vec4f(in.position, 0.0, 1.0);
+    o.color = in.color;
+    return o;
 }
 
 @fragment
-fn fs_main() -> @location(0) vec4f {
-	return vec4f(0.0, 0.4, 1.0, 1.0);
+fn fs_main(in: VertexOutput) -> @location(0) vec4f {
+	return vec4f(in.color, 1.0);
 }
 )";
 
@@ -354,16 +367,26 @@ void Application::InitializePipeline() {
     VertexState vertexState;
     // vertexBufferLayout
     VertexBufferLayout vertexBufferLayout;
-    vertexBufferLayout.arrayStride = 2 * sizeof(float); // 2 floats / vertex
+    vertexBufferLayout.arrayStride = 5 * sizeof(float); // 2f pos + 3f colors / vertex
     vertexBufferLayout.stepMode = VertexStepMode::Vertex;
     // position attribute
     VertexAttribute positionAttrib;
     positionAttrib.shaderLocation = 0;
     positionAttrib.format = VertexFormat::Float32x2;
     positionAttrib.offset = 0;
-	// pass position attr to vertexBufferLayout
-    vertexBufferLayout.attributeCount = 1;
-    vertexBufferLayout.attributes = &positionAttrib;
+    //color attribute
+	VertexAttribute colorAttrib;
+    colorAttrib.shaderLocation = 1;
+    colorAttrib.format = VertexFormat::Float32x3;
+    colorAttrib.offset = 2 * sizeof(float); // after position
+    
+	// pass position & color attr to vertexBufferLayout
+    std::vector<VertexAttribute> vertexAttributes(2);
+	vertexAttributes[0] = positionAttrib; 
+	vertexAttributes[1] = colorAttrib;
+	vertexBufferLayout.attributeCount = vertexAttributes.size();
+    vertexBufferLayout.attributes = vertexAttributes.data();
+
 	//// pass vertexBufferLayout to pipelineDesc
     vertexState.bufferCount = 1;
     vertexState.buffers = &vertexBufferLayout;
@@ -434,10 +457,11 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     adapter.getLimits(&supportedLimits);
 
     RequiredLimits requiredLimits = Default;
-    requiredLimits.limits.maxVertexAttributes = 1;
+    requiredLimits.limits.maxVertexAttributes = 2;
     requiredLimits.limits.maxVertexBuffers = 1;
-    //requiredLimits.limits.maxBufferSize = 6 * 2 * sizeof(float);
-    //requiredLimits.limits.maxVertexBufferArrayStride = 2 * sizeof(float);
+    requiredLimits.limits.maxBufferSize = 6 * 5 * sizeof(float);
+    requiredLimits.limits.maxVertexBufferArrayStride = 5 * sizeof(float);
+    //requiredLimits.limits.maxInterStageShaderComponents = 3; // 3f for color, doesn't count built-in components like position
 
     requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
     requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
@@ -449,27 +473,28 @@ void Application::InitializeBuffers() {
     //Buffer vertexBuffer;
     //uint32_t vertexCount;
     std::vector<float> vertices = {
-         0.0f,  0.0f,
-         0.2f,  0.4f,
-        -0.2f,  0.4f,
-      
-         0.0f,  0.0f,
-         0.4f,  0.2f,
-         0.4f, -0.2f,
-      
-         0.0f,  0.0f,
-        -0.2f, -0.4f,
-         0.2f, -0.4f,
-      
-         0.0f,  0.0f,
-        -0.4f, -0.2f,
-        -0.4f,  0.2f
+        // top
+         0.0f,  0.0f, 1.0, 0.0, 0.0,
+         0.2f,  0.4f, 1.0, 0.0, 0.0,
+        -0.2f,  0.4f, 1.0, 0.0, 0.0,
+		// right
+         0.0f,  0.0f, 0.0, 1.0, 0.0,
+         0.4f,  0.2f, 0.0, 1.0, 0.0,
+         0.4f, -0.2f, 0.0, 1.0, 0.0,
+		// bottom
+         0.0f,  0.0f, 0.0, 0.0, 1.0,
+		-0.2f, -0.4f, 0.0, 1.0, 0.0,
+		 0.2f, -0.4f, 1.0, 0.0, 0.0,
+        // left
+         0.0f,  0.0f, 1.0, 1.0, 1.0,
+        -0.4f, -0.2f, 1.0, 0.5, 1.0,
+        -0.4f,  0.2f, 0.5, 1.0, 1.0,
     };
 
-	vertexCount = static_cast<uint32_t>(vertices.size() / 2);
+	vertexCount = static_cast<uint32_t>(vertices.size() / 5);
 
     BufferDescriptor bufferDesc;
-    bufferDesc.label = "Buffer 0";
+    bufferDesc.label = "Vertex Buffer";
 	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
 	bufferDesc.size = vertices.size() * sizeof(float);
     bufferDesc.mappedAtCreation = false;
