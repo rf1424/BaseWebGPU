@@ -29,7 +29,10 @@ struct VertexOutput {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var o : VertexOutput;
+
+    let AR =  640.0 / 480.0;
     o.position = vec4f(in.position, 0.0, 1.0);
+    o.position.x /= AR;
     o.color = in.color;
     return o;
 }
@@ -42,7 +45,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
 class Application {
 public:
-    
+
     bool Initialize();
 
     void Terminate();
@@ -51,8 +54,8 @@ public:
 
     bool IsRunning();
 
-    
-private: 
+
+private:
     TextureView GetNextSurfaceTextureView();
     void InitializePipeline();
     RequiredLimits GetRequiredLimits(Adapter adapter) const;
@@ -68,7 +71,9 @@ private:
     TextureFormat surfaceFormat = TextureFormat::Undefined;
 
     Buffer vertexBuffer;
-    uint32_t vertexCount;
+    Buffer indexBuffer;
+    
+    uint32_t indexCount;
 
 };
 
@@ -154,7 +159,7 @@ bool Application::Initialize() {
     std::cout << "Got adapter: " << adapter << std::endl;
     // after adapter obtained
     instance.release();
-    
+
     // DEVICE ----------------------------------------------------------------------------------------------
     std::cout << "Requesting device..." << std::endl;
     // create default device descriptor!!!
@@ -202,7 +207,7 @@ bool Application::Initialize() {
     // use format of the surface (from adapter)
     surfaceFormat = surface.getPreferredFormat(adapter);
     config.format = surfaceFormat;
-    
+
     // no view formats
     config.viewFormatCount = 0;
     config.viewFormats = nullptr;
@@ -220,11 +225,12 @@ bool Application::Initialize() {
     InitializePipeline();
 
     InitializeBuffers();
-    
+
     return true;
 }
 
 void Application::Terminate() {
+    indexBuffer.release();
     vertexBuffer.release();
     pipeline.release();
     surface.unconfigure();
@@ -274,7 +280,9 @@ void Application::MainLoop() {
     RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer, 0, vertexBuffer.getSize());
-    renderPass.draw(vertexCount, 1, 0, 0);
+	renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexBuffer.getSize());
+    renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
+
     renderPass.end();
     renderPass.release();
 
@@ -375,19 +383,19 @@ void Application::InitializePipeline() {
     positionAttrib.format = VertexFormat::Float32x2;
     positionAttrib.offset = 0;
     //color attribute
-	VertexAttribute colorAttrib;
+    VertexAttribute colorAttrib;
     colorAttrib.shaderLocation = 1;
     colorAttrib.format = VertexFormat::Float32x3;
     colorAttrib.offset = 2 * sizeof(float); // after position
-    
-	// pass position & color attr to vertexBufferLayout
+
+    // pass position & color attr to vertexBufferLayout
     std::vector<VertexAttribute> vertexAttributes(2);
-	vertexAttributes[0] = positionAttrib; 
-	vertexAttributes[1] = colorAttrib;
-	vertexBufferLayout.attributeCount = vertexAttributes.size();
+    vertexAttributes[0] = positionAttrib;
+    vertexAttributes[1] = colorAttrib;
+    vertexBufferLayout.attributeCount = vertexAttributes.size();
     vertexBufferLayout.attributes = vertexAttributes.data();
 
-	//// pass vertexBufferLayout to pipelineDesc
+    //// pass vertexBufferLayout to pipelineDesc
     vertexState.bufferCount = 1;
     vertexState.buffers = &vertexBufferLayout;
 
@@ -447,12 +455,12 @@ void Application::InitializePipeline() {
     pipelineDesc.layout = nullptr;
 
     pipeline = device.createRenderPipeline(pipelineDesc);
-    
+
     shaderModule.release();
 }
 
 RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
-    
+
     SupportedLimits supportedLimits;
     adapter.getLimits(&supportedLimits);
 
@@ -470,40 +478,53 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
 }
 
 void Application::InitializeBuffers() {
-    //Buffer vertexBuffer;
-    //uint32_t vertexCount;
     std::vector<float> vertices = {
+        // center
+        0.0f,  0.0f, 0.0, 0.0, 1.0,
         // top
-         0.0f,  0.0f, 1.0, 0.0, 0.0,
          0.2f,  0.4f, 1.0, 0.0, 0.0,
         -0.2f,  0.4f, 1.0, 0.0, 0.0,
-		// right
-         0.0f,  0.0f, 0.0, 1.0, 0.0,
+        // right
          0.4f,  0.2f, 0.0, 1.0, 0.0,
          0.4f, -0.2f, 0.0, 1.0, 0.0,
-		// bottom
-         0.0f,  0.0f, 0.0, 0.0, 1.0,
-		-0.2f, -0.4f, 0.0, 1.0, 0.0,
-		 0.2f, -0.4f, 1.0, 0.0, 0.0,
+        // bottom
+         -0.2f, -0.4f, 0.0, 1.0, 0.0,
+          0.2f, -0.4f, 1.0, 0.0, 0.0,
         // left
-         0.0f,  0.0f, 1.0, 1.0, 1.0,
-        -0.4f, -0.2f, 1.0, 0.5, 1.0,
-        -0.4f,  0.2f, 0.5, 1.0, 1.0,
+         -0.4f, -0.2f, 1.0, 0.5, 1.0,
+         -0.4f,  0.2f, 0.5, 1.0, 1.0,
     };
 
-	vertexCount = static_cast<uint32_t>(vertices.size() / 5);
+	std::vector<uint16_t> indices = {
+		0, 1, 2, // top triangle
+		0, 3, 4, // right triangle
+		0, 5, 6, // bottom triangle
+		0, 7, 8, // left triangle
+	};
+	indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
+
+    BufferDescriptor indexBufferDesc;
+	indexBufferDesc.label = "Index Buffer";
+	indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
+	indexBufferDesc.size = indices.size() * sizeof(uint16_t);
+	indexBufferDesc.size = (indexBufferDesc.size + 3) & ~3; // align to 4 bytes
+    indexBufferDesc.mappedAtCreation = false;
+    indexBuffer = device.createBuffer(indexBufferDesc);
+	queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);
+
+	indexCount = static_cast<uint32_t>(indices.size());
 
     BufferDescriptor bufferDesc;
     bufferDesc.label = "Vertex Buffer";
-	bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
-	bufferDesc.size = vertices.size() * sizeof(float);
+    bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
+    bufferDesc.size = vertices.size() * sizeof(float);
+	bufferDesc.size = (bufferDesc.size + 3) & ~3; // align to 4 bytes
     bufferDesc.mappedAtCreation = false;
 
     vertexBuffer = device.createBuffer(bufferDesc);
 
-	queue.writeBuffer(vertexBuffer, 0, vertices.data(), vertices.size() * sizeof(float));
+    queue.writeBuffer(vertexBuffer, 0, vertices.data(), vertices.size() * sizeof(float));
 }
-
 
 
 
