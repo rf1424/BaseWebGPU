@@ -2,6 +2,7 @@
 #define WEBGPU_CPP_IMPLEMENTATION
 #include "webgpu/webgpu.hpp" // C++ wrapper
 #include "webgpu-utils.h"
+#include "FileManagement.h"
 
 #include <iostream>
 #include <cassert>
@@ -14,34 +15,6 @@
 #endif // __EMSCRIPTEN__
 
 using namespace wgpu;
-
-const char* shaderSource = R"(
-
-struct VertexInput {
-    @location(0) position: vec2f,
-    @location(1) color: vec3f
-};
-struct VertexOutput {
-    @builtin(position) position: vec4f,
-    @location(0) color: vec3f
-};
-
-@vertex
-fn vs_main(in: VertexInput) -> VertexOutput {
-    var o : VertexOutput;
-
-    let AR =  640.0 / 480.0;
-    o.position = vec4f(in.position, 0.0, 1.0);
-    o.position.x /= AR;
-    o.color = in.color;
-    return o;
-}
-
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-	return vec4f(in.color, 1.0);
-}
-)";
 
 class Application {
 public:
@@ -60,6 +33,7 @@ private:
     void InitializePipeline();
     RequiredLimits GetRequiredLimits(Adapter adapter) const;
     void InitializeBuffers();
+    void InitializeBindGroups();
 
 private:
     GLFWwindow* window;
@@ -70,8 +44,14 @@ private:
     RenderPipeline pipeline;
     TextureFormat surfaceFormat = TextureFormat::Undefined;
 
+    BindGroupLayout bindGroupLayout;
+    BindGroup bindGroup;
+    PipelineLayout layout;
+
+
     Buffer vertexBuffer;
     Buffer indexBuffer;
+    Buffer uniformBuffer;
     
     uint32_t indexCount;
 
@@ -225,14 +205,22 @@ bool Application::Initialize() {
     InitializePipeline();
 
     InitializeBuffers();
+    InitializeBindGroups(); // after buffers are created and passed
 
     return true;
 }
 
 void Application::Terminate() {
+    
+
     indexBuffer.release();
     vertexBuffer.release();
+    uniformBuffer.release();
+    layout.release();
+    bindGroupLayout.release();
+    bindGroup.release();
     pipeline.release();
+
     surface.unconfigure();
     queue.release();
     surface.release();
@@ -244,6 +232,9 @@ void Application::Terminate() {
 void Application::MainLoop() {
 
     glfwPollEvents();
+
+    float t = static_cast<float>(glfwGetTime()); 
+    queue.writeBuffer(uniformBuffer, 0, &t, sizeof(float));
 
     // next target texture view
     TextureView targetView = GetNextSurfaceTextureView();
@@ -265,7 +256,7 @@ void Application::MainLoop() {
 
     renderPassColorAttachment.loadOp = LoadOp::Clear; // operation before render pass
     renderPassColorAttachment.storeOp = StoreOp::Store; // operation after rendre pass
-    renderPassColorAttachment.clearValue = Color{ 0.1, 0.1, 0.9, 1.0 };
+    // renderPassColorAttachment.clearValue = Color{ 1., 0., 0., 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
     renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif // NOT WEBGPU_BACKEND_WGPU
@@ -281,6 +272,7 @@ void Application::MainLoop() {
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer, 0, vertexBuffer.getSize());
 	renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexBuffer.getSize());
+    renderPass.setBindGroup(0, bindGroup, 0, nullptr);
     renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
 
     renderPass.end();
@@ -353,14 +345,15 @@ TextureView Application::GetNextSurfaceTextureView() {
 void Application::InitializePipeline() {
     RenderPipelineDescriptor pipelineDesc;
 
-    // create shader module
-    ShaderModuleDescriptor shaderDesc; // main description
-    ShaderModuleWGSLDescriptor shaderCodeDesc; // additional, chained description for WGSL
-    shaderCodeDesc.chain.next = nullptr;
-    shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor; // set to WGSL
-    shaderDesc.nextInChain = &shaderCodeDesc.chain; // connect additional to main via CHAIN
-    shaderCodeDesc.code = shaderSource;
-    ShaderModule shaderModule = device.createShaderModule(shaderDesc);
+    //// create shader module
+    //ShaderModuleDescriptor shaderDesc; // main description
+    //ShaderModuleWGSLDescriptor shaderCodeDesc; // additional, chained description for WGSL
+    //shaderCodeDesc.chain.next = nullptr;
+    //shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor; // set to WGSL
+    //shaderDesc.nextInChain = &shaderCodeDesc.chain; // connect additional to main via CHAIN
+    //shaderCodeDesc.code = shaderSource;
+    //ShaderModule shaderModule = device.createShaderModule(shaderDesc);
+	ShaderModule shaderModule = FileManagement::loadShaderModule("../files/shader0.wgsl", device);
 
     if (!shaderModule) {
         std::cerr << "Shader module creation failed!" << std::endl;
@@ -451,8 +444,28 @@ void Application::InitializePipeline() {
     pipelineDesc.multisample.count = 1; // off for now
     pipelineDesc.multisample.mask = ~0u;
     pipelineDesc.multisample.alphaToCoverageEnabled = false;
+
+
+    // define pipeline layout (describe pipeline resources)
+    // Binding Layout
+    BindGroupLayoutEntry bindingLayout = Default;// 0. sets buffer, sampler, etc. to undefined
+    bindingLayout.binding = 0;// binding index, same as attrubute used in shader for uTime
+    bindingLayout.visibility = ShaderStage::Vertex;
+    bindingLayout.buffer.type = BufferBindingType::Uniform; // 1. undefined -> BUFFER
+    bindingLayout.buffer.minBindingSize = 4 * sizeof(float);
+    // Bindinh group of binding layout
+    BindGroupLayoutDescriptor bindGroupLayoutDesc{};
+    bindGroupLayoutDesc.entryCount = 1;
+    bindGroupLayoutDesc.entries = &bindingLayout;
+    bindGroupLayout = device.createBindGroupLayout(bindGroupLayoutDesc);
+    // layout descriptor
+    PipelineLayoutDescriptor layoutDesc{};
+    layoutDesc.bindGroupLayoutCount = 1;
+    layoutDesc.bindGroupLayouts = (WGPUBindGroupLayout*)&bindGroupLayout;
+    layout = device.createPipelineLayout(layoutDesc);
+
     // ask backend to figure out the layout itself by inspecting the shader
-    pipelineDesc.layout = nullptr;
+    pipelineDesc.layout = layout;
 
     pipeline = device.createRenderPipeline(pipelineDesc);
 
@@ -474,6 +487,12 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
     requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
 
+    // for uniforms
+    
+    requiredLimits.limits.maxBindGroups = 1;
+    requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
+    requiredLimits.limits.maxUniformBufferBindingSize = 16 * 4;
+
     return requiredLimits;
 }
 
@@ -487,44 +506,84 @@ void Application::InitializeBuffers() {
         // right
          0.4f,  0.2f, 0.0, 1.0, 0.0,
          0.4f, -0.2f, 0.0, 1.0, 0.0,
-        // bottom
-         -0.2f, -0.4f, 0.0, 1.0, 0.0,
-          0.2f, -0.4f, 1.0, 0.0, 0.0,
-        // left
-         -0.4f, -0.2f, 1.0, 0.5, 1.0,
-         -0.4f,  0.2f, 0.5, 1.0, 1.0,
+         // bottom
+          -0.2f, -0.4f, 0.0, 1.0, 0.0,
+           0.2f, -0.4f, 1.0, 0.0, 0.0,
+           // left
+            -0.4f, -0.2f, 1.0, 0.5, 1.0,
+            -0.4f,  0.2f, 0.5, 1.0, 1.0,
     };
 
-	std::vector<uint16_t> indices = {
-		0, 1, 2, // top triangle
-		0, 3, 4, // right triangle
-		0, 5, 6, // bottom triangle
-		0, 7, 8, // left triangle
-	};
-	indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
+    std::vector<uint16_t> indices = {
+        0, 1, 2, // top triangle
+        0, 3, 4, // right triangle
+        0, 5, 6, // bottom triangle
+        0, 7, 8, // left triangle
+    };
 
+    indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
+
+
+    //std::vector<float> pointData;
+    //std::vector<uint16_t> indexData;
+
+    // Here we use the new 'loadGeometry' function:
+    bool success = FileManagement::loadGeometry("../files/sampleGeo.txt", vertices, indices);
+    if (!success) {
+        std::cerr << "Could not load geometry!" << std::endl;
+        exit(1);
+    }
+
+    indexCount = static_cast<uint32_t>(indices.size());
+
+    // VERTEX BUFFER
     BufferDescriptor indexBufferDesc;
-	indexBufferDesc.label = "Index Buffer";
-	indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
-	indexBufferDesc.size = indices.size() * sizeof(uint16_t);
-	indexBufferDesc.size = (indexBufferDesc.size + 3) & ~3; // align to 4 bytes
+    indexBufferDesc.label = "Index Buffer";
+    indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
+    indexBufferDesc.size = indices.size() * sizeof(uint16_t);
+    indexBufferDesc.size = (indexBufferDesc.size + 3) & ~3; // align to 4 bytes
     indexBufferDesc.mappedAtCreation = false;
+
     indexBuffer = device.createBuffer(indexBufferDesc);
-	queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);
+    queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);
 
-	indexCount = static_cast<uint32_t>(indices.size());
-
+    //INDEX BUFFER
     BufferDescriptor bufferDesc;
     bufferDesc.label = "Vertex Buffer";
     bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
     bufferDesc.size = vertices.size() * sizeof(float);
-	bufferDesc.size = (bufferDesc.size + 3) & ~3; // align to 4 bytes
+    bufferDesc.size = (bufferDesc.size + 3) & ~3; // align to 4 bytes
     bufferDesc.mappedAtCreation = false;
 
     vertexBuffer = device.createBuffer(bufferDesc);
-
     queue.writeBuffer(vertexBuffer, 0, vertices.data(), vertices.size() * sizeof(float));
+
+    // UNIFORM BUFFER
+    BufferDescriptor uniformBufferDesc;
+    uniformBufferDesc.label = "Uniform Buffer";
+    uniformBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
+    uniformBufferDesc.size = 4 * sizeof(float);
+    uniformBufferDesc.size = (uniformBufferDesc.size + 3) & ~3; // align to 4 bytes
+    uniformBufferDesc.mappedAtCreation = false;
+
+	uniformBuffer = device.createBuffer(uniformBufferDesc);
+    float time = 1.0f;
+    queue.writeBuffer(uniformBuffer, 0, &time, sizeof(float));
 }
 
 
+void Application::InitializeBindGroups() {
 
+
+    BindGroupEntry binding{};
+    binding.binding = 0;
+    binding.buffer = uniformBuffer;
+    binding.offset = 0;
+    binding.size = 4 * sizeof(float); // TODO: look again
+
+    BindGroupDescriptor bindGroupDesc{};
+    bindGroupDesc.layout = bindGroupLayout; // defined in layer pipeline
+    bindGroupDesc.entryCount = 1;
+    bindGroupDesc.entries = &binding;
+    bindGroup = device.createBindGroup(bindGroupDesc);
+}

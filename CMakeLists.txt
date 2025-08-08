@@ -19,9 +19,12 @@ add_subdirectory(webgpu)
 add_subdirectory(glfw3webgpu)
 
 add_executable(App
-	main.cpp
+	Main.cpp
 	webgpu-utils.h
 	webgpu-utils.cpp
+
+    FileManagement.h
+    FileManagement.cpp
 )
 
 # Add the 'webgpu' target as a dependency of our App
