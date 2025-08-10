@@ -5,7 +5,8 @@
 bool FileManagement::loadGeometry(
     const std::filesystem::path& path,
     std::vector<float>& pointData,
-    std::vector<uint16_t>& indexData
+    std::vector<uint16_t>& indexData,
+	int dimensions
 ) {
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -44,8 +45,8 @@ bool FileManagement::loadGeometry(
         }
         else if (currentSection == Section::Points) {
             std::istringstream iss(line);
-            // Get x, y, r, g, b
-            for (int i = 0; i < 5; ++i) {
+            // Get x, y, z, r, g, b
+            for (int i = 0; i < 3 + dimensions; ++i) {
                 iss >> value;
                 pointData.push_back(value);
             }

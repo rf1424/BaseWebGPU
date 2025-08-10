@@ -34,6 +34,7 @@ private:
     RequiredLimits GetRequiredLimits(Adapter adapter) const;
     void InitializeBuffers();
     void InitializeBindGroups();
+    void InitializeDepthTexture();
 
 private:
     GLFWwindow* window;
@@ -44,6 +45,7 @@ private:
     RenderPipeline pipeline;
     TextureFormat surfaceFormat = TextureFormat::Undefined;
 
+    // uniform bindings
     BindGroupLayout bindGroupLayout;
     BindGroup bindGroup;
     PipelineLayout layout;
@@ -54,6 +56,10 @@ private:
     Buffer uniformBuffer;
     
     uint32_t indexCount;
+
+    Texture depthTexture;
+    TextureView depthTextureView;
+    TextureFormat depthTextureFormat = TextureFormat::Undefined;
 
 };
 
@@ -202,9 +208,11 @@ bool Application::Initialize() {
     // after getting device & surface config
     adapter.release();
 
+    depthTextureFormat = TextureFormat::Depth24Plus;
     InitializePipeline();
 
     InitializeBuffers();
+    InitializeDepthTexture();
     InitializeBindGroups(); // after buffers are created and passed
 
     return true;
@@ -220,6 +228,10 @@ void Application::Terminate() {
     bindGroupLayout.release();
     bindGroup.release();
     pipeline.release();
+
+    depthTextureView.release();
+    depthTexture.destroy();
+    depthTexture.release();
 
     surface.unconfigure();
     queue.release();
@@ -263,8 +275,27 @@ void Application::MainLoop() {
 
     renderPassDesc.colorAttachmentCount = 1;
     renderPassDesc.colorAttachments = &renderPassColorAttachment;
-    // don't use these for now
-    renderPassDesc.depthStencilAttachment = nullptr;
+
+    // for depth buffer
+    RenderPassDepthStencilAttachment depthStencilAttachment; 
+	depthStencilAttachment.view = depthTextureView; // created in InitializeDepthTexture()
+    depthStencilAttachment.depthClearValue = 1.0f;
+    depthStencilAttachment.depthLoadOp = LoadOp::Clear;
+    depthStencilAttachment.depthStoreOp = StoreOp::Store;
+    /*depthStencilAttachment.depthLoadOp = LoadOp::Undefined;
+    depthStencilAttachment.depthStoreOp = StoreOp::Undefined;*/
+    depthStencilAttachment.depthReadOnly = false;
+    // do not use stencil for now (but setup required)
+    /*depthStencilAttachment.stencilClearValue = 0;
+    depthStencilAttachment.stencilLoadOp = LoadOp::Clear;
+    depthStencilAttachment.stencilStoreOp = StoreOp::Store;
+    depthStencilAttachment.stencilReadOnly = true;*/
+	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+
+    // TODO: necessary for DAWN maybe?
+    /*constexpr auto NaNf = std::numeric_limits<float>::quiet_NaN();
+    depthStencilAttachment.clearDepth = NaNf;*/
+
     renderPassDesc.timestampWrites = nullptr;
 
     // get access to commands for rendering (pass the descriptor)
@@ -368,18 +399,18 @@ void Application::InitializePipeline() {
     VertexState vertexState;
     // vertexBufferLayout
     VertexBufferLayout vertexBufferLayout;
-    vertexBufferLayout.arrayStride = 5 * sizeof(float); // 2f pos + 3f colors / vertex
+    vertexBufferLayout.arrayStride = 6 * sizeof(float); // 2f pos + 3f colors / vertex
     vertexBufferLayout.stepMode = VertexStepMode::Vertex;
     // position attribute
     VertexAttribute positionAttrib;
     positionAttrib.shaderLocation = 0;
-    positionAttrib.format = VertexFormat::Float32x2;
+    positionAttrib.format = VertexFormat::Float32x3;
     positionAttrib.offset = 0;
     //color attribute
     VertexAttribute colorAttrib;
     colorAttrib.shaderLocation = 1;
     colorAttrib.format = VertexFormat::Float32x3;
-    colorAttrib.offset = 2 * sizeof(float); // after position
+    colorAttrib.offset = 3 * sizeof(float); // after position
 
     // pass position & color attr to vertexBufferLayout
     std::vector<VertexAttribute> vertexAttributes(2);
@@ -438,7 +469,14 @@ void Application::InitializePipeline() {
     pipelineDesc.fragment = &fragmentState;
 
     // 3. Stencil/depth state
-    pipelineDesc.depthStencil = nullptr;
+    DepthStencilState depthStencilState = Default;
+	depthStencilState.depthCompare = CompareFunction::LessEqual;
+	depthStencilState.depthWriteEnabled = true;
+	depthStencilState.format = depthTextureFormat;
+    depthStencilState.stencilReadMask = 0;
+    depthStencilState.stencilWriteMask = 0;
+    pipelineDesc.depthStencil = &depthStencilState;
+
 
     // Multi-sample 
     pipelineDesc.multisample.count = 1; // off for now
@@ -481,14 +519,18 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     requiredLimits.limits.maxVertexAttributes = 2;
     requiredLimits.limits.maxVertexBuffers = 1;
     requiredLimits.limits.maxBufferSize = 6 * 5 * sizeof(float);
-    requiredLimits.limits.maxVertexBufferArrayStride = 5 * sizeof(float);
+    requiredLimits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
     //requiredLimits.limits.maxInterStageShaderComponents = 3; // 3f for color, doesn't count built-in components like position
 
     requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
     requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
 
+    // depth texture
+    requiredLimits.limits.maxTextureDimension1D = 480;
+    requiredLimits.limits.maxTextureDimension2D = 640;
+    requiredLimits.limits.maxTextureArrayLayers = 1;
+
     // for uniforms
-    
     requiredLimits.limits.maxBindGroups = 1;
     requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
     requiredLimits.limits.maxUniformBufferBindingSize = 16 * 4;
@@ -497,46 +539,19 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
 }
 
 void Application::InitializeBuffers() {
-    std::vector<float> vertices = {
-        // center
-        0.0f,  0.0f, 0.0, 0.0, 1.0,
-        // top
-         0.2f,  0.4f, 1.0, 0.0, 0.0,
-        -0.2f,  0.4f, 1.0, 0.0, 0.0,
-        // right
-         0.4f,  0.2f, 0.0, 1.0, 0.0,
-         0.4f, -0.2f, 0.0, 1.0, 0.0,
-         // bottom
-          -0.2f, -0.4f, 0.0, 1.0, 0.0,
-           0.2f, -0.4f, 1.0, 0.0, 0.0,
-           // left
-            -0.4f, -0.2f, 1.0, 0.5, 1.0,
-            -0.4f,  0.2f, 0.5, 1.0, 1.0,
-    };
-
-    std::vector<uint16_t> indices = {
-        0, 1, 2, // top triangle
-        0, 3, 4, // right triangle
-        0, 5, 6, // bottom triangle
-        0, 7, 8, // left triangle
-    };
-
-    indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
-
-
-    //std::vector<float> pointData;
-    //std::vector<uint16_t> indexData;
-
-    // Here we use the new 'loadGeometry' function:
-    bool success = FileManagement::loadGeometry("../files/sampleGeo.txt", vertices, indices);
+	std::vector<float> vertices; // vertex data
+	std::vector<uint16_t> indices; // index data
+    //bool success = FileManagement::loadGeometry("../files/sampleGeo.txt", vertices, indices, 2);
+    bool success = FileManagement::loadGeometry("../files/pyramidGeo.txt", vertices, indices, 3);
     if (!success) {
         std::cerr << "Could not load geometry!" << std::endl;
         exit(1);
     }
 
+    indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
     indexCount = static_cast<uint32_t>(indices.size());
 
-    // VERTEX BUFFER
+    // INDEX BUFFER
     BufferDescriptor indexBufferDesc;
     indexBufferDesc.label = "Index Buffer";
     indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
@@ -547,7 +562,7 @@ void Application::InitializeBuffers() {
     indexBuffer = device.createBuffer(indexBufferDesc);
     queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);
 
-    //INDEX BUFFER
+    // VERTEX BUFFER
     BufferDescriptor bufferDesc;
     bufferDesc.label = "Vertex Buffer";
     bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
@@ -575,6 +590,7 @@ void Application::InitializeBuffers() {
 void Application::InitializeBindGroups() {
 
 
+
     BindGroupEntry binding{};
     binding.binding = 0;
     binding.buffer = uniformBuffer;
@@ -586,4 +602,30 @@ void Application::InitializeBindGroups() {
     bindGroupDesc.entryCount = 1;
     bindGroupDesc.entries = &binding;
     bindGroup = device.createBindGroup(bindGroupDesc);
+}
+
+void Application::InitializeDepthTexture()
+{
+    // depth texture
+    TextureDescriptor depthTextureDesc;
+    depthTextureDesc.dimension = TextureDimension::_2D;
+    depthTextureDesc.format = depthTextureFormat;
+    depthTextureDesc.mipLevelCount = 1;
+    depthTextureDesc.sampleCount = 1;
+    depthTextureDesc.size = { 640, 480, 1 };
+    depthTextureDesc.usage = TextureUsage::RenderAttachment;
+    depthTextureDesc.viewFormatCount = 1;
+    depthTextureDesc.viewFormats = (WGPUTextureFormat*)&depthTextureFormat;
+    depthTexture = device.createTexture(depthTextureDesc);
+    
+    // texture view for accessibility
+    TextureViewDescriptor depthTextureViewDesc;
+    depthTextureViewDesc.aspect = TextureAspect::DepthOnly;
+    depthTextureViewDesc.baseArrayLayer = 0;
+    depthTextureViewDesc.arrayLayerCount = 1;
+    depthTextureViewDesc.baseMipLevel = 0;
+    depthTextureViewDesc.mipLevelCount = 1;
+    depthTextureViewDesc.dimension = TextureViewDimension::_2D;
+    depthTextureViewDesc.format = depthTextureFormat;
+    depthTextureView = depthTexture.createView(depthTextureViewDesc);
 }
