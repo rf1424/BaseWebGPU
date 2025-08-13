@@ -30,6 +30,9 @@ add_executable(App
 # Add the 'webgpu' target as a dependency of our App
 target_link_libraries(App PRIVATE webgpu glfw glfw3webgpu)
 
+# look for includes in the current directory
+target_include_directories(App PRIVATE .)
+
 # The application's binary must find wgpu.dll or libwgpu.so at runtime,
 # so we automatically copy it (it's called WGPU_RUNTIME_LIB in general)
 # next to the binary.
@@ -41,13 +44,6 @@ set_target_properties(App PROPERTIES
     CXX_EXTENSIONS OFF
     COMPILE_WARNING_AS_ERROR ON
 )
-
-# have as many warning as possible for now
-if (MSVC)
-        target_compile_options(App PRIVATE /W4)
-else()
-        target_compile_options(App PRIVATE -Wall -Wextra -pedantic)
-endif()
 
 # Enable the use of emscripten_sleep()
 target_link_options(App PRIVATE -sASYNCIFY)

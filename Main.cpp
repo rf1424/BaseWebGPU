@@ -9,6 +9,8 @@
 #include <vector>
 #include <GLFW/glfw3.h>
 #include <glfw3webgpu.h>
+#include <array>
+#include <glm/ext.hpp>
 
 #ifdef __EMSCRIPTEN__
 #  include <emscripten.h>
@@ -51,16 +53,36 @@ private:
     PipelineLayout layout;
 
 
+    // buffers
     Buffer vertexBuffer;
     Buffer indexBuffer;
     Buffer uniformBuffer;
-    
-    uint32_t indexCount;
 
+    struct Uniforms {
+        glm::mat4x4 projMatrix; // alignment: 16
+        glm::mat4x4 viewMatrix;
+        glm::mat4x4 modelMatrix;
+        float time;
+        // padding
+        float padding[3]; // time + pad = 16 bytes for alignment!
+    };
+
+    struct VertexAttr {
+        glm::vec3 position;
+        glm::vec3 color;
+        glm::vec3 normal;
+        glm::vec2 uv;
+    };
+    
+    uint32_t indexCount = 0;
+
+    //depth setup
     Texture depthTexture;
     TextureView depthTextureView;
     TextureFormat depthTextureFormat = TextureFormat::Undefined;
 
+    
+    
 };
 
 int main() {
@@ -245,13 +267,18 @@ void Application::MainLoop() {
 
     glfwPollEvents();
 
+    //update uniforms
     float t = static_cast<float>(glfwGetTime()); 
-    queue.writeBuffer(uniformBuffer, 0, &t, sizeof(float));
+    queue.writeBuffer(uniformBuffer, sizeof(glm::mat4x4) * 3., &t, sizeof(float)); // offset for mvp
+    glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
+    glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), (t), glm::vec3(1, 0, 0));
+    model *= model2;
+    queue.writeBuffer(uniformBuffer, offsetof(Uniforms, modelMatrix), &model, sizeof(glm::mat4x4));
 
     // next target texture view
     TextureView targetView = GetNextSurfaceTextureView();
     if (!targetView) return;
-
+    
     // encoder for render pass
     CommandEncoderDescriptor encoderDesc = {};
     encoderDesc.nextInChain = nullptr;
@@ -399,7 +426,7 @@ void Application::InitializePipeline() {
     VertexState vertexState;
     // vertexBufferLayout
     VertexBufferLayout vertexBufferLayout;
-    vertexBufferLayout.arrayStride = 6 * sizeof(float); // 2f pos + 3f colors / vertex
+    vertexBufferLayout.arrayStride = sizeof(VertexAttr);
     vertexBufferLayout.stepMode = VertexStepMode::Vertex;
     // position attribute
     VertexAttribute positionAttrib;
@@ -410,12 +437,25 @@ void Application::InitializePipeline() {
     VertexAttribute colorAttrib;
     colorAttrib.shaderLocation = 1;
     colorAttrib.format = VertexFormat::Float32x3;
-    colorAttrib.offset = 3 * sizeof(float); // after position
+    colorAttrib.offset = offsetof(VertexAttr, color);
+
+    //normal attribute
+    VertexAttribute normalAttrib;
+    normalAttrib.shaderLocation = 2;
+    normalAttrib.format = VertexFormat::Float32x3; //vec3
+    normalAttrib.offset = offsetof(VertexAttr, normal);
+    // uv attribute
+    VertexAttribute uvAttrib;
+    uvAttrib.shaderLocation = 3;
+    uvAttrib.format = VertexFormat::Float32x2;
+    uvAttrib.offset = offsetof(VertexAttr, uv);
 
     // pass position & color attr to vertexBufferLayout
-    std::vector<VertexAttribute> vertexAttributes(2);
+    std::vector<VertexAttribute> vertexAttributes(4);
     vertexAttributes[0] = positionAttrib;
     vertexAttributes[1] = colorAttrib;
+    vertexAttributes[2] = normalAttrib;
+	vertexAttributes[3] = uvAttrib;
     vertexBufferLayout.attributeCount = vertexAttributes.size();
     vertexBufferLayout.attributes = vertexAttributes.data();
 
@@ -490,7 +530,7 @@ void Application::InitializePipeline() {
     bindingLayout.binding = 0;// binding index, same as attrubute used in shader for uTime
     bindingLayout.visibility = ShaderStage::Vertex;
     bindingLayout.buffer.type = BufferBindingType::Uniform; // 1. undefined -> BUFFER
-    bindingLayout.buffer.minBindingSize = 4 * sizeof(float);
+    bindingLayout.buffer.minBindingSize = sizeof(Uniforms);
     // Bindinh group of binding layout
     BindGroupLayoutDescriptor bindGroupLayoutDesc{};
     bindGroupLayoutDesc.entryCount = 1;
@@ -518,8 +558,8 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     RequiredLimits requiredLimits = Default;
     requiredLimits.limits.maxVertexAttributes = 2;
     requiredLimits.limits.maxVertexBuffers = 1;
-    requiredLimits.limits.maxBufferSize = 6 * 5 * sizeof(float);
-    requiredLimits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
+    //requiredLimits.limits.maxBufferSize = 6 * 5 * sizeof(float);
+    //requiredLimits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
     //requiredLimits.limits.maxInterStageShaderComponents = 3; // 3f for color, doesn't count built-in components like position
 
     requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
@@ -533,7 +573,7 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     // for uniforms
     requiredLimits.limits.maxBindGroups = 1;
     requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
-    requiredLimits.limits.maxUniformBufferBindingSize = 16 * 4;
+    requiredLimits.limits.maxUniformBufferBindingSize = sizeof(Uniforms);
 
     return requiredLimits;
 }
@@ -542,7 +582,7 @@ void Application::InitializeBuffers() {
 	std::vector<float> vertices; // vertex data
 	std::vector<uint16_t> indices; // index data
     //bool success = FileManagement::loadGeometry("../files/sampleGeo.txt", vertices, indices, 2);
-    bool success = FileManagement::loadGeometry("../files/pyramidGeo.txt", vertices, indices, 3);
+    bool success = FileManagement::loadGeometry("../files/pyramidGeo.txt", vertices, indices, 8); // TODO temp: 8 for pos nor uv
     if (!success) {
         std::cerr << "Could not load geometry!" << std::endl;
         exit(1);
@@ -577,25 +617,33 @@ void Application::InitializeBuffers() {
     BufferDescriptor uniformBufferDesc;
     uniformBufferDesc.label = "Uniform Buffer";
     uniformBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Uniform;
-    uniformBufferDesc.size = 4 * sizeof(float);
+    uniformBufferDesc.size = sizeof(Uniforms);
     uniformBufferDesc.size = (uniformBufferDesc.size + 3) & ~3; // align to 4 bytes
     uniformBufferDesc.mappedAtCreation = false;
 
 	uniformBuffer = device.createBuffer(uniformBufferDesc);
-    float time = 1.0f;
-    queue.writeBuffer(uniformBuffer, 0, &time, sizeof(float));
+    
+    Uniforms uniforms;
+    uniforms.time = 1.0f;
+
+    uniforms.viewMatrix = glm::lookAt(
+        glm::vec3(0, 0, 3),
+        glm::vec3(0, 0, 0),
+        glm::vec3(0, 1, 0)
+    );
+    uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 100.0f);
+    uniforms.modelMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
+    
+    queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(Uniforms));
 }
 
 
 void Application::InitializeBindGroups() {
-
-
-
     BindGroupEntry binding{};
     binding.binding = 0;
     binding.buffer = uniformBuffer;
     binding.offset = 0;
-    binding.size = 4 * sizeof(float); // TODO: look again
+    binding.size = sizeof(Uniforms);
 
     BindGroupDescriptor bindGroupDesc{};
     bindGroupDesc.layout = bindGroupLayout; // defined in layer pipeline
