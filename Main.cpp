@@ -1,11 +1,13 @@
 #define WEBGPU_CPP_IMPLEMENTATION
 #define TINYOBJLOADER_IMPLEMENTATION // Add to one .cpp file
+#define STB_IMAGE_IMPLEMENTATION
 
 #include "webgpu/webgpu.hpp"    // C++ wrapper
 #include "webgpu-utils.h"
 
 #include "FileManagement.h"
-#include "VertexAttr.h" 
+#include "VertexAttr.h"
+#include "stb_image.h"
 
 #include <iostream>
 #include <cassert>
@@ -15,6 +17,7 @@
 #include <GLFW/glfw3.h>
 #include <glfw3webgpu.h>
 #include <glm/ext.hpp>
+
 
 
 // Emscripten
@@ -71,13 +74,6 @@ private:
         // padding
         float padding[3]; // time + pad = 16 bytes for alignment!
     };
-
-    /*struct VertexAttr {
-        glm::vec3 position;
-        glm::vec3 color;
-        glm::vec3 normal;
-        glm::vec2 uv;
-    };*/
     
     uint32_t indexCount = 0;
 
@@ -86,8 +82,9 @@ private:
     TextureView depthTextureView;
     TextureFormat depthTextureFormat = TextureFormat::Undefined;
 
-    TextureView colorTextureView; // TODO: how about textureformat?
 
+    TextureView colorTextureView; // TODO: how about textureformat?
+	Sampler sampler;
 private:
     TextureView GetNextSurfaceTextureView();
     void InitializePipeline();
@@ -95,6 +92,7 @@ private:
     void InitializeBuffers();
     void InitializeBindGroups();
     void InitializeDepthTexture();
+    Texture getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView = nullptr);
 };
 
 int main() {
@@ -135,7 +133,7 @@ bool Application::Initialize() {
     // hints
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    window = glfwCreateWindow(640, 480, "Learn WebGPU", nullptr, nullptr);
+    window = glfwCreateWindow(640, 480, "WebGPU", nullptr, nullptr);
 
     // INSTANCE SETUP ----------------------------------------------------------------------------------------------
     // create a descriptor
@@ -247,6 +245,12 @@ bool Application::Initialize() {
 
     InitializeBuffers();
     InitializeDepthTexture();
+
+    Texture colorTexture = getObjTexture("../files/Lidded_Ewer.jpeg", device, &colorTextureView);
+    if (!colorTexture) {
+        std::cerr << "Could not load texture!" << std::endl;
+    }
+
     InitializeBindGroups(); // after buffers are created and passed
 
     return true;
@@ -267,6 +271,8 @@ void Application::Terminate() {
     depthTexture.destroy();
     depthTexture.release();
 
+	colorTextureView.release();
+
     surface.unconfigure();
     queue.release();
     surface.release();
@@ -282,9 +288,13 @@ void Application::MainLoop() {
     //update uniforms
     float t = static_cast<float>(glfwGetTime()); 
     queue.writeBuffer(uniformBuffer, sizeof(glm::mat4x4) * 3., &t, sizeof(float)); // offset for mvp
-    glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
-    glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), (t), glm::vec3(1, 0, 0));
-    model *= model2;
+    //glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
+    ////glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(1, 0, 0));
+    //glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), t, glm::vec3(1, 0, 0));
+    //model *= model2;
+
+    glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), t, glm::vec3(0, 1, 0));
+
     queue.writeBuffer(uniformBuffer, offsetof(Uniforms, modelMatrix), &model, sizeof(glm::mat4x4));
 
     // next target texture view
@@ -415,14 +425,6 @@ TextureView Application::GetNextSurfaceTextureView() {
 void Application::InitializePipeline() {
     RenderPipelineDescriptor pipelineDesc;
 
-    //// create shader module
-    //ShaderModuleDescriptor shaderDesc; // main description
-    //ShaderModuleWGSLDescriptor shaderCodeDesc; // additional, chained description for WGSL
-    //shaderCodeDesc.chain.next = nullptr;
-    //shaderCodeDesc.chain.sType = SType::ShaderModuleWGSLDescriptor; // set to WGSL
-    //shaderDesc.nextInChain = &shaderCodeDesc.chain; // connect additional to main via CHAIN
-    //shaderCodeDesc.code = shaderSource;
-    //ShaderModule shaderModule = device.createShaderModule(shaderDesc);
     ShaderModule shaderModule = FileManagement::loadShaderModule("../files/shader0.wgsl", device);
 
     if (!shaderModule) {
@@ -481,11 +483,6 @@ void Application::InitializePipeline() {
     vertexState.constantCount = 0;
     vertexState.constants = nullptr;
 
-    //pipelineDesc.vertex.module = shaderModule;
-    //pipelineDesc.vertex.entryPoint = "vs_main";
-    //pipelineDesc.vertex.constantCount = 0;
-    //pipelineDesc.vertex.constants = nullptr;
-
     pipelineDesc.vertex = vertexState;
 
     // 1. Primitive pipeline state (primitive assembly and rasterization)
@@ -538,22 +535,28 @@ void Application::InitializePipeline() {
 
     // define pipeline layout (describe pipeline resources)
     // Uniforms Binding Layout
-    std::vector<BindGroupLayoutEntry> bindingLayoutEntries(2, Default); // 0. sets buffer, sampler, etc. to undefined
+    std::vector<BindGroupLayoutEntry> bindingLayoutEntries(3, Default); // Default sets buffer, sampler, etc. to undefined
 
-
+    // 0. Uniforms
     BindGroupLayoutEntry& bindingLayout = bindingLayoutEntries[0];
     bindingLayout.binding = 0;// binding index, same as attrubute used in shader for uTime
     bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
     bindingLayout.buffer.type = BufferBindingType::Uniform; // 1. undefined -> BUFFER
     bindingLayout.buffer.minBindingSize = sizeof(Uniforms);
 
-    // Texture Binding Layout
+    // 1. Texture Binding Layout
     BindGroupLayoutEntry& textureBindingLayout = bindingLayoutEntries[1];
     textureBindingLayout.binding = 1;
     textureBindingLayout.visibility = ShaderStage::Fragment;
     textureBindingLayout.texture.sampleType = TextureSampleType::Float;
     textureBindingLayout.texture.viewDimension = TextureViewDimension::_2D;
 
+    // 2. Sampler
+    BindGroupLayoutEntry& samplerBindingLayout = bindingLayoutEntries[2];
+    samplerBindingLayout.binding = 2;
+    samplerBindingLayout.visibility = ShaderStage::Fragment;
+    samplerBindingLayout.sampler.type = SamplerBindingType::Filtering;
+    
     // Binding group of binding layout
     BindGroupLayoutDescriptor bindGroupLayoutDesc{};
     bindGroupLayoutDesc.entryCount = (uint32_t)bindingLayoutEntries.size();
@@ -579,11 +582,11 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     adapter.getLimits(&supportedLimits);
 
     RequiredLimits requiredLimits = Default;
-    requiredLimits.limits.maxVertexAttributes = 2;
+    requiredLimits.limits.maxVertexAttributes = 4; // pos col nor uv
     requiredLimits.limits.maxVertexBuffers = 1;
-    //requiredLimits.limits.maxBufferSize = 6 * 5 * sizeof(float);
-    //requiredLimits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
-    //requiredLimits.limits.maxInterStageShaderComponents = 3; // 3f for color, doesn't count built-in components like position
+    // requiredLimits.limits.maxBufferSize = 150000 * sizeof(VertexAttr);
+    // requiredLimits.limits.maxVertexBufferArrayStride = 6 * sizeof(float);
+    // requiredLimits.limits.maxInterStageShaderComponents = 3; // 3f for color, doesn't count built-in components like position
 
     requiredLimits.limits.minUniformBufferOffsetAlignment = supportedLimits.limits.minUniformBufferOffsetAlignment;
     requiredLimits.limits.minStorageBufferOffsetAlignment = supportedLimits.limits.minStorageBufferOffsetAlignment;
@@ -600,41 +603,23 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
 
     // textures
     requiredLimits.limits.maxSampledTexturesPerShaderStage = 1;
+    requiredLimits.limits.maxSamplersPerShaderStage = 1;
+
+    requiredLimits.limits.maxTextureDimension1D = 2048;
+    requiredLimits.limits.maxTextureDimension2D = 2048;
 
     return requiredLimits;
 }
 
 void Application::InitializeBuffers() {
-	//std::vector<float> vertices; // vertex data
-	//std::vector<uint16_t> indices; // index data
-    //bool success = FileManagement::loadGeometry("../files/sampleGeo.txt", vertices, indices, 2);
-    //bool success = FileManagement::loadGeometry("../files/pyramidGeo.txt", vertices, indices, 8); // TODO temp: 8 for pos nor uv
-    //if (!success) {
-    //    std::cerr << "Could not load geometry!" << std::endl;
-    //    exit(1);
-    //}
+	
     
     std::vector<VertexAttr> verticesList;
-	bool success = FileManagement::getObjGeometry("../files/cube.obj", verticesList);
+	bool success = FileManagement::getObjGeometry("../files/Lidded_Ewer.obj", verticesList);
     if (!success) {
         std::cerr << "Could not load geometry!" << std::endl;
         exit(1);
     }
-
-    //indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
-    //indexCount = static_cast<uint32_t>(indices.size());
-
-    // INDEX BUFFER
- //   BufferDescriptor indexBufferDesc;
- //   indexBufferDesc.label = "Index Buffer";
- //   indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
-	//int indexCount = static_cast<uint32_t>(vertexAttr.size());
-	//indexBufferDesc.size = indexCount * sizeof(uint16_t); // 2 bytes per index)
- //   indexBufferDesc.size = (indexBufferDesc.size + 3) & ~3; // align to 4 bytes
- //   indexBufferDesc.mappedAtCreation = false;
-
-    /*indexBuffer = device.createBuffer(indexBufferDesc);
-    queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);*/
 
     indexCount = static_cast<uint32_t>(verticesList.size());
 
@@ -663,11 +648,11 @@ void Application::InitializeBuffers() {
     uniforms.time = 1.0f;
 
     uniforms.viewMatrix = glm::lookAt(
-        glm::vec3(0, 0, 10),
-        glm::vec3(0, 0, 0),
+        glm::vec3(0, 0.2, 0.5),
+        glm::vec3(0, 0.15, 0),
         glm::vec3(0, 1, 0)
     );
-    uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 100.0f);
+    uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 1000.0f);
     uniforms.modelMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
     
     queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(Uniforms));
@@ -687,9 +672,16 @@ void Application::InitializeBindGroups() {
     textureBinding.binding = 1;
     textureBinding.textureView = colorTextureView;
 
-    std::vector<BindGroupEntry> bindingEntries(2);
+    // SAMPLER
+	BindGroupEntry samplerBinding{};
+	samplerBinding.binding = 2;
+	samplerBinding.sampler = sampler;
+
+
+    std::vector<BindGroupEntry> bindingEntries(3);
     bindingEntries[0] = binding;
     bindingEntries[1] = textureBinding;
+	bindingEntries[2] = samplerBinding;
     BindGroupDescriptor bindGroupDesc{};
     bindGroupDesc.layout = bindGroupLayout; // defined in layer pipeline
     bindGroupDesc.entryCount = (uint32_t)bindingEntries.size();
@@ -723,27 +715,85 @@ void Application::InitializeDepthTexture()
     depthTextureView = depthTexture.createView(depthTextureViewDesc);
 
 
+    
+    
+    //std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
+    //int cellSize = 32;
+    //for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
+    //    for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
+    //        uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
+
+    //        float dx = i - textureDesc.size.width / 2.0f;
+    //        float dy = j - textureDesc.size.height / 2.0f;
+    //        int band = static_cast<int>(sqrtf(dx * dx + dy * dy) / 4) % 2; // ring size = 4px
+
+    //        uint8_t v = band ? 255 : 0; // alternate black/white
+    //        p[0] = v;
+    //        p[1] = v;
+    //        p[2] = v;
+    //        p[3] = 255;
+    //    }
+    //}
+    
+
+    /*ImageCopyTexture destination;
+    destination.texture = colorTexture;
+    destination.mipLevel = 0;
+    destination.origin = { 0, 0, 0 };
+    destination.aspect = TextureAspect::All;
+    TextureDataLayout source;
+    source.offset = 0;
+    source.bytesPerRow = 4 * textureDesc.size.width;
+    source.rowsPerImage = textureDesc.size.height;
+
+    queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);*/
+
+	// need this for binding
+	
+    //colorTextureView = colorTexture.createView(textureViewDesc);
+
+    /*colorTexture.destroy(); // TODO; end of scope so automatic?
+    texture.release();*/
+
+
+    SamplerDescriptor samplerDesc;
+    samplerDesc.addressModeU = AddressMode::ClampToEdge;
+    samplerDesc.addressModeV = AddressMode::ClampToEdge;
+    samplerDesc.addressModeW = AddressMode::ClampToEdge;
+    samplerDesc.magFilter = FilterMode::Linear;
+    samplerDesc.minFilter = FilterMode::Linear;
+    samplerDesc.mipmapFilter = MipmapFilterMode::Linear;
+    samplerDesc.lodMinClamp = 0.0f;
+    samplerDesc.lodMaxClamp = 1.0f;
+    samplerDesc.compare = CompareFunction::Undefined;
+    samplerDesc.maxAnisotropy = 1;
+    sampler = device.createSampler(samplerDesc);
+}
+
+Texture Application::getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView)
+{
+    
+    int width, height, channels;
+    unsigned char* data = stbi_load(path.string().c_str(), &width, &height, &channels, 4); // 4 rgba
+    
+    if (nullptr == data) return nullptr;
+
+
+    // create texture descriptor
     TextureDescriptor textureDesc;
     textureDesc.dimension = TextureDimension::_2D;
     textureDesc.format = WGPUTextureFormat_RGBA8Unorm; // unsigned, normalized 0-1
     textureDesc.mipLevelCount = 1;
     textureDesc.sampleCount = 1;
-    textureDesc.size = { 256, 256, 1 }; // TODO temp size!!!!!
+    textureDesc.sampleCount = 1;
+    textureDesc.size = { (unsigned int)width, (unsigned int)height, 1 };
     textureDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst; // shader binding & copy from CPU
-    textureDesc.viewFormatCount = 0; // TODO understand
+    textureDesc.viewFormatCount = 0; // no alternate formats for texture view
     textureDesc.viewFormats = nullptr;
-    // Create image data
-    std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
-    for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
-        for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
-            uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
-            p[0] = (i / 16) % 2 == (j / 16) % 2 ? 255 : 0; // r
-            p[1] = ((i - j) / 16) % 2 == 0 ? 255 : 0; // g
-            p[2] = ((i + j) / 16) % 2 == 0 ? 255 : 0; // b
-            p[3] = 255; // a
-        }
-    }
+
     Texture colorTexture = device.createTexture(textureDesc);
+
+
 
     ImageCopyTexture destination;
     destination.texture = colorTexture;
@@ -755,20 +805,49 @@ void Application::InitializeDepthTexture()
     source.bytesPerRow = 4 * textureDesc.size.width;
     source.rowsPerImage = textureDesc.size.height;
 
-    queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);
+    queue.writeTexture(destination, data, width * height * 4, source, textureDesc.size);
+    // TODO mipmapping
 
-    // texture view TODO: understand
-    TextureViewDescriptor textureViewDesc;
-    textureViewDesc.aspect = TextureAspect::All;
-    textureViewDesc.baseArrayLayer = 0;
-    textureViewDesc.arrayLayerCount = 1;
-    textureViewDesc.baseMipLevel = 0;
-    textureViewDesc.mipLevelCount = 1;
-    textureViewDesc.dimension = TextureViewDimension::_2D;
-    textureViewDesc.format = textureDesc.format;
-    colorTextureView = colorTexture.createView(textureViewDesc);
 
-    /*colorTexture.destroy(); // TODO; end of scope so automatic?
-    texture.release();*/
+    // LOADING MY OWN TEXTURE INSTEAD -------------------------------------------------------
+    std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
+    int cellSize = 32;
+    for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
+        for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
+            uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
+
+            float dx = i - textureDesc.size.width / 2.0f;
+            float dy = j - textureDesc.size.height / 2.0f;
+            int band = static_cast<int>(sqrtf(dx * dx + dy * dy) / 4) % 2; // ring size = 4px
+
+            uint8_t v = band ? 255 : 0; // alternate black/white
+            p[0] = v;
+            p[1] = v;
+            p[2] = v;
+            p[3] = 255;
+        }
+    }
+	// queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);
+    // ----------------------------------------------------------------------------------------------
+    
+    // release
+    stbi_image_free(data);
+
+    if (textureView) {
+        // texture view
+        TextureViewDescriptor textureViewDesc;
+        textureViewDesc.aspect = TextureAspect::All;
+        textureViewDesc.baseArrayLayer = 0;
+        textureViewDesc.arrayLayerCount = 1;
+        textureViewDesc.baseMipLevel = 0;
+        textureViewDesc.mipLevelCount = 1;
+        textureViewDesc.dimension = TextureViewDimension::_2D;
+        textureViewDesc.format = textureDesc.format;
+
+		*textureView = colorTexture.createView(textureViewDesc);
+    }
+    
+
+    return colorTexture;
 }
 

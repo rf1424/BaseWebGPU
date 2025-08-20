@@ -34,7 +34,8 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> u_Uniforms: Uniforms;
-@group(0) @binding(1) var gradientTexture: texture_2d<f32>;
+@group(0) @binding(1) var circleTexture: texture_2d<f32>;
+@group(0) @binding(2) var textureSampler : sampler;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -54,12 +55,19 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     // for visual debugging
-    // var nor : vec3f = in.normal * 0.5 + 0.5;
+    var nor : vec3f = in.normal * 0.5 + 0.5;
 
-    let lightDirection = vec3f(0.5, 0.9, 0.1);
-    let shading = dot(lightDirection, in.normal);
+    // simple shading
+    let lightDirection = vec3f(1.0, 1.0, 1.0) * 0.6;//0.5, 0., 0.1);
+    let shading = max(dot(lightDirection, in.normal), 0.);
     var color = vec3(0.5) * shading + vec3(0.5, 0.5, 0.1);
-    let texelUV = vec2i(in.uv * vec2f(textureDimensions(gradientTexture))); // 0-1 -> 0-texture size
-    color = textureLoad(gradientTexture, texelUV, 0).rgb;
+
+    // texturing
+    let texelUV = vec2i(in.uv * vec2f(textureDimensions(circleTexture))); // 0-1 -> 0-texture size
+    //color = textureLoad(circleTexture, texelUV, 0).rgb;
+    color = textureSample(circleTexture, textureSampler, in.uv).rgb;
+
+    color = color * 0.5 + color * shading;
+
 	return vec4f(color, 1.0);
 }   
