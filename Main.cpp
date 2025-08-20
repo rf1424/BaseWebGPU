@@ -1,42 +1,48 @@
-// #include <webgpu/webgpu.h>
 #define WEBGPU_CPP_IMPLEMENTATION
-#include "webgpu/webgpu.hpp" // C++ wrapper
+#define TINYOBJLOADER_IMPLEMENTATION // Add to one .cpp file
+
+#include "webgpu/webgpu.hpp"    // C++ wrapper
 #include "webgpu-utils.h"
+
 #include "FileManagement.h"
+#include "VertexAttr.h" 
 
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <array>
+
 #include <GLFW/glfw3.h>
 #include <glfw3webgpu.h>
-#include <array>
 #include <glm/ext.hpp>
 
+
+// Emscripten
 #ifdef __EMSCRIPTEN__
 #  include <emscripten.h>
 #endif // __EMSCRIPTEN__
 
 using namespace wgpu;
 
+
+// camera class, here for now
+class Camera {
+private :
+    glm::vec3 pos;
+    float fov;
+    int width;
+    int height;
+    float nearClip;
+    float farClip;
+    float AR;
+};
+
 class Application {
 public:
-
     bool Initialize();
-
     void Terminate();
-
     void MainLoop();
-
     bool IsRunning();
-
-
-private:
-    TextureView GetNextSurfaceTextureView();
-    void InitializePipeline();
-    RequiredLimits GetRequiredLimits(Adapter adapter) const;
-    void InitializeBuffers();
-    void InitializeBindGroups();
-    void InitializeDepthTexture();
 
 private:
     GLFWwindow* window;
@@ -52,10 +58,9 @@ private:
     BindGroup bindGroup;
     PipelineLayout layout;
 
-
     // buffers
     Buffer vertexBuffer;
-    Buffer indexBuffer;
+    // Buffer indexBuffer;
     Buffer uniformBuffer;
 
     struct Uniforms {
@@ -67,12 +72,12 @@ private:
         float padding[3]; // time + pad = 16 bytes for alignment!
     };
 
-    struct VertexAttr {
+    /*struct VertexAttr {
         glm::vec3 position;
         glm::vec3 color;
         glm::vec3 normal;
         glm::vec2 uv;
-    };
+    };*/
     
     uint32_t indexCount = 0;
 
@@ -81,8 +86,15 @@ private:
     TextureView depthTextureView;
     TextureFormat depthTextureFormat = TextureFormat::Undefined;
 
-    
-    
+    TextureView colorTextureView; // TODO: how about textureformat?
+
+private:
+    TextureView GetNextSurfaceTextureView();
+    void InitializePipeline();
+    RequiredLimits GetRequiredLimits(Adapter adapter) const;
+    void InitializeBuffers();
+    void InitializeBindGroups();
+    void InitializeDepthTexture();
 };
 
 int main() {
@@ -243,7 +255,7 @@ bool Application::Initialize() {
 void Application::Terminate() {
     
 
-    indexBuffer.release();
+    // indexBuffer.release();
     vertexBuffer.release();
     uniformBuffer.release();
     layout.release();
@@ -329,10 +341,10 @@ void Application::MainLoop() {
     RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer, 0, vertexBuffer.getSize());
-	renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexBuffer.getSize());
+	// renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexBuffer.getSize());
     renderPass.setBindGroup(0, bindGroup, 0, nullptr);
-    renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
-
+    // renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
+    renderPass.draw(indexCount, 1, 0, 0);
     renderPass.end();
     renderPass.release();
 
@@ -411,7 +423,7 @@ void Application::InitializePipeline() {
     //shaderDesc.nextInChain = &shaderCodeDesc.chain; // connect additional to main via CHAIN
     //shaderCodeDesc.code = shaderSource;
     //ShaderModule shaderModule = device.createShaderModule(shaderDesc);
-	ShaderModule shaderModule = FileManagement::loadShaderModule("../files/shader0.wgsl", device);
+    ShaderModule shaderModule = FileManagement::loadShaderModule("../files/shader0.wgsl", device);
 
     if (!shaderModule) {
         std::cerr << "Shader module creation failed!" << std::endl;
@@ -455,7 +467,7 @@ void Application::InitializePipeline() {
     vertexAttributes[0] = positionAttrib;
     vertexAttributes[1] = colorAttrib;
     vertexAttributes[2] = normalAttrib;
-	vertexAttributes[3] = uvAttrib;
+    vertexAttributes[3] = uvAttrib;
     vertexBufferLayout.attributeCount = vertexAttributes.size();
     vertexBufferLayout.attributes = vertexAttributes.data();
 
@@ -510,9 +522,9 @@ void Application::InitializePipeline() {
 
     // 3. Stencil/depth state
     DepthStencilState depthStencilState = Default;
-	depthStencilState.depthCompare = CompareFunction::LessEqual;
-	depthStencilState.depthWriteEnabled = true;
-	depthStencilState.format = depthTextureFormat;
+    depthStencilState.depthCompare = CompareFunction::LessEqual;
+    depthStencilState.depthWriteEnabled = true;
+    depthStencilState.format = depthTextureFormat;
     depthStencilState.stencilReadMask = 0;
     depthStencilState.stencilWriteMask = 0;
     pipelineDesc.depthStencil = &depthStencilState;
@@ -525,16 +537,27 @@ void Application::InitializePipeline() {
 
 
     // define pipeline layout (describe pipeline resources)
-    // Binding Layout
-    BindGroupLayoutEntry bindingLayout = Default;// 0. sets buffer, sampler, etc. to undefined
+    // Uniforms Binding Layout
+    std::vector<BindGroupLayoutEntry> bindingLayoutEntries(2, Default); // 0. sets buffer, sampler, etc. to undefined
+
+
+    BindGroupLayoutEntry& bindingLayout = bindingLayoutEntries[0];
     bindingLayout.binding = 0;// binding index, same as attrubute used in shader for uTime
-    bindingLayout.visibility = ShaderStage::Vertex;
+    bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
     bindingLayout.buffer.type = BufferBindingType::Uniform; // 1. undefined -> BUFFER
     bindingLayout.buffer.minBindingSize = sizeof(Uniforms);
-    // Bindinh group of binding layout
+
+    // Texture Binding Layout
+    BindGroupLayoutEntry& textureBindingLayout = bindingLayoutEntries[1];
+    textureBindingLayout.binding = 1;
+    textureBindingLayout.visibility = ShaderStage::Fragment;
+    textureBindingLayout.texture.sampleType = TextureSampleType::Float;
+    textureBindingLayout.texture.viewDimension = TextureViewDimension::_2D;
+
+    // Binding group of binding layout
     BindGroupLayoutDescriptor bindGroupLayoutDesc{};
-    bindGroupLayoutDesc.entryCount = 1;
-    bindGroupLayoutDesc.entries = &bindingLayout;
+    bindGroupLayoutDesc.entryCount = (uint32_t)bindingLayoutEntries.size();
+    bindGroupLayoutDesc.entries = bindingLayoutEntries.data();
     bindGroupLayout = device.createBindGroupLayout(bindGroupLayoutDesc);
     // layout descriptor
     PipelineLayoutDescriptor layoutDesc{};
@@ -575,43 +598,56 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     requiredLimits.limits.maxUniformBuffersPerShaderStage = 1;
     requiredLimits.limits.maxUniformBufferBindingSize = sizeof(Uniforms);
 
+    // textures
+    requiredLimits.limits.maxSampledTexturesPerShaderStage = 1;
+
     return requiredLimits;
 }
 
 void Application::InitializeBuffers() {
-	std::vector<float> vertices; // vertex data
-	std::vector<uint16_t> indices; // index data
+	//std::vector<float> vertices; // vertex data
+	//std::vector<uint16_t> indices; // index data
     //bool success = FileManagement::loadGeometry("../files/sampleGeo.txt", vertices, indices, 2);
-    bool success = FileManagement::loadGeometry("../files/pyramidGeo.txt", vertices, indices, 8); // TODO temp: 8 for pos nor uv
+    //bool success = FileManagement::loadGeometry("../files/pyramidGeo.txt", vertices, indices, 8); // TODO temp: 8 for pos nor uv
+    //if (!success) {
+    //    std::cerr << "Could not load geometry!" << std::endl;
+    //    exit(1);
+    //}
+    
+    std::vector<VertexAttr> verticesList;
+	bool success = FileManagement::getObjGeometry("../files/cube.obj", verticesList);
     if (!success) {
         std::cerr << "Could not load geometry!" << std::endl;
         exit(1);
     }
 
-    indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
-    indexCount = static_cast<uint32_t>(indices.size());
+    //indices.resize((indices.size() + 1) & ~1); // align to 2 bytes for index buffer
+    //indexCount = static_cast<uint32_t>(indices.size());
 
     // INDEX BUFFER
-    BufferDescriptor indexBufferDesc;
-    indexBufferDesc.label = "Index Buffer";
-    indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
-    indexBufferDesc.size = indices.size() * sizeof(uint16_t);
-    indexBufferDesc.size = (indexBufferDesc.size + 3) & ~3; // align to 4 bytes
-    indexBufferDesc.mappedAtCreation = false;
+ //   BufferDescriptor indexBufferDesc;
+ //   indexBufferDesc.label = "Index Buffer";
+ //   indexBufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Index;
+	//int indexCount = static_cast<uint32_t>(vertexAttr.size());
+	//indexBufferDesc.size = indexCount * sizeof(uint16_t); // 2 bytes per index)
+ //   indexBufferDesc.size = (indexBufferDesc.size + 3) & ~3; // align to 4 bytes
+ //   indexBufferDesc.mappedAtCreation = false;
 
-    indexBuffer = device.createBuffer(indexBufferDesc);
-    queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);
+    /*indexBuffer = device.createBuffer(indexBufferDesc);
+    queue.writeBuffer(indexBuffer, 0, indices.data(), indexBufferDesc.size);*/
+
+    indexCount = static_cast<uint32_t>(verticesList.size());
 
     // VERTEX BUFFER
     BufferDescriptor bufferDesc;
     bufferDesc.label = "Vertex Buffer";
     bufferDesc.usage = BufferUsage::CopyDst | BufferUsage::Vertex;
-    bufferDesc.size = vertices.size() * sizeof(float);
+    bufferDesc.size = verticesList.size() * sizeof(VertexAttr);
     bufferDesc.size = (bufferDesc.size + 3) & ~3; // align to 4 bytes
     bufferDesc.mappedAtCreation = false;
 
     vertexBuffer = device.createBuffer(bufferDesc);
-    queue.writeBuffer(vertexBuffer, 0, vertices.data(), vertices.size() * sizeof(float));
+	queue.writeBuffer(vertexBuffer, 0, verticesList.data(), bufferDesc.size);
 
     // UNIFORM BUFFER
     BufferDescriptor uniformBufferDesc;
@@ -627,7 +663,7 @@ void Application::InitializeBuffers() {
     uniforms.time = 1.0f;
 
     uniforms.viewMatrix = glm::lookAt(
-        glm::vec3(0, 0, 3),
+        glm::vec3(0, 0, 10),
         glm::vec3(0, 0, 0),
         glm::vec3(0, 1, 0)
     );
@@ -639,16 +675,25 @@ void Application::InitializeBuffers() {
 
 
 void Application::InitializeBindGroups() {
+    // UNIFORM
     BindGroupEntry binding{};
     binding.binding = 0;
     binding.buffer = uniformBuffer;
     binding.offset = 0;
     binding.size = sizeof(Uniforms);
 
+    // TEXTURE
+    BindGroupEntry textureBinding{}; // TODO: other specidications?????
+    textureBinding.binding = 1;
+    textureBinding.textureView = colorTextureView;
+
+    std::vector<BindGroupEntry> bindingEntries(2);
+    bindingEntries[0] = binding;
+    bindingEntries[1] = textureBinding;
     BindGroupDescriptor bindGroupDesc{};
     bindGroupDesc.layout = bindGroupLayout; // defined in layer pipeline
-    bindGroupDesc.entryCount = 1;
-    bindGroupDesc.entries = &binding;
+    bindGroupDesc.entryCount = (uint32_t)bindingEntries.size();
+    bindGroupDesc.entries = bindingEntries.data();
     bindGroup = device.createBindGroup(bindGroupDesc);
 }
 
@@ -665,7 +710,7 @@ void Application::InitializeDepthTexture()
     depthTextureDesc.viewFormatCount = 1;
     depthTextureDesc.viewFormats = (WGPUTextureFormat*)&depthTextureFormat;
     depthTexture = device.createTexture(depthTextureDesc);
-    
+
     // texture view for accessibility
     TextureViewDescriptor depthTextureViewDesc;
     depthTextureViewDesc.aspect = TextureAspect::DepthOnly;
@@ -676,4 +721,54 @@ void Application::InitializeDepthTexture()
     depthTextureViewDesc.dimension = TextureViewDimension::_2D;
     depthTextureViewDesc.format = depthTextureFormat;
     depthTextureView = depthTexture.createView(depthTextureViewDesc);
+
+
+    TextureDescriptor textureDesc;
+    textureDesc.dimension = TextureDimension::_2D;
+    textureDesc.format = WGPUTextureFormat_RGBA8Unorm; // unsigned, normalized 0-1
+    textureDesc.mipLevelCount = 1;
+    textureDesc.sampleCount = 1;
+    textureDesc.size = { 256, 256, 1 }; // TODO temp size!!!!!
+    textureDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst; // shader binding & copy from CPU
+    textureDesc.viewFormatCount = 0; // TODO understand
+    textureDesc.viewFormats = nullptr;
+    // Create image data
+    std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
+    for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
+        for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
+            uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
+            p[0] = (i / 16) % 2 == (j / 16) % 2 ? 255 : 0; // r
+            p[1] = ((i - j) / 16) % 2 == 0 ? 255 : 0; // g
+            p[2] = ((i + j) / 16) % 2 == 0 ? 255 : 0; // b
+            p[3] = 255; // a
+        }
+    }
+    Texture colorTexture = device.createTexture(textureDesc);
+
+    ImageCopyTexture destination;
+    destination.texture = colorTexture;
+    destination.mipLevel = 0;
+    destination.origin = { 0, 0, 0 };
+    destination.aspect = TextureAspect::All;
+    TextureDataLayout source;
+    source.offset = 0;
+    source.bytesPerRow = 4 * textureDesc.size.width;
+    source.rowsPerImage = textureDesc.size.height;
+
+    queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);
+
+    // texture view TODO: understand
+    TextureViewDescriptor textureViewDesc;
+    textureViewDesc.aspect = TextureAspect::All;
+    textureViewDesc.baseArrayLayer = 0;
+    textureViewDesc.arrayLayerCount = 1;
+    textureViewDesc.baseMipLevel = 0;
+    textureViewDesc.mipLevelCount = 1;
+    textureViewDesc.dimension = TextureViewDimension::_2D;
+    textureViewDesc.format = textureDesc.format;
+    colorTextureView = colorTexture.createView(textureViewDesc);
+
+    /*colorTexture.destroy(); // TODO; end of scope so automatic?
+    texture.release();*/
 }
+
