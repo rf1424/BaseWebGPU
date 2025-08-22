@@ -50,6 +50,7 @@ public:
 private:
     GLFWwindow* window;
     Device device;
+    Adapter adapter;
     Queue queue;
     Surface surface;
     std::unique_ptr<ErrorCallback> uncapturedErrorCallbackHandle; // TODO
@@ -89,10 +90,12 @@ private:
     TextureView GetNextSurfaceTextureView();
     void InitializePipeline();
     RequiredLimits GetRequiredLimits(Adapter adapter) const;
+    void InitializeSurface();
     void InitializeBuffers();
     void InitializeBindGroups();
     void InitializeDepthTexture();
     Texture getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView = nullptr);
+    void reSizeScreen();
 };
 
 int main() {
@@ -132,8 +135,22 @@ bool Application::Initialize() {
     glfwInit();
     // hints
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
     window = glfwCreateWindow(640, 480, "WebGPU", nullptr, nullptr);
+
+    // glfw window -> Application instance
+    // set user pointer to access application instance in callbacks
+    glfwSetWindowUserPointer(window, this);
+
+	// create lambda function for resize callback using pointer to App
+	// must be a NON-Capturing lambda to be converted to function pointer
+    auto resizeCallback = [](GLFWwindow* window, int width, int height) {
+        // get application instance
+        Application* appPtr = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (appPtr) appPtr->reSizeScreen();
+        };
+	// finally set the callback!
+	glfwSetFramebufferSizeCallback(window, resizeCallback);
 
     // INSTANCE SETUP ----------------------------------------------------------------------------------------------
     // create a descriptor
@@ -172,7 +189,7 @@ bool Application::Initialize() {
     // surface
     surface = glfwGetWGPUSurface(instance, window);
     adapterOpts.compatibleSurface = surface;
-    Adapter adapter = instance.requestAdapter(adapterOpts);
+    adapter = instance.requestAdapter(adapterOpts);
 
     std::cout << "Got adapter: " << adapter << std::endl;
     // after adapter obtained
@@ -202,10 +219,10 @@ bool Application::Initialize() {
     std::cout << "Got device: " << device << std::endl;
 
 
-    //// Uncaptured Error Callback??? for  breakpoints TODO
+    
     uncapturedErrorCallbackHandle = device.setUncapturedErrorCallback(
         [](ErrorType type, char const* message) {
-            std::cout << "Uncaptured error: " << type;
+            std::cout << "Uncaptured error callback: " << type;
             if (message) std::cout << " (" << message << ")";
             std::cout << std::endl;
         }
@@ -238,7 +255,7 @@ bool Application::Initialize() {
     surface.configure(config);
 
     // after getting device & surface config
-    adapter.release();
+     //adapter.release();
 
     depthTextureFormat = TextureFormat::Depth24Plus;
     InitializePipeline();
@@ -273,6 +290,7 @@ void Application::Terminate() {
 
 	colorTextureView.release();
 
+    adapter.release();
     surface.unconfigure();
     queue.release();
     surface.release();
@@ -611,6 +629,34 @@ RequiredLimits Application::GetRequiredLimits(Adapter adapter) const {
     return requiredLimits;
 }
 
+void Application::InitializeSurface()
+{
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+
+    SurfaceConfiguration config = {};
+    config.nextInChain = nullptr;
+    // size of texture for now
+    config.width = width;
+    config.height = height;
+    // flag as to-be used for render output
+    config.usage = TextureUsage::RenderAttachment;
+    // use format of the surface (from adapter)
+    surfaceFormat = surface.getPreferredFormat(adapter);
+    config.format = surfaceFormat;
+
+    // no view formats
+    config.viewFormatCount = 0;
+    config.viewFormats = nullptr;
+    config.device = device;
+    // presentation: first in, first out
+    config.presentMode = PresentMode::Fifo;
+    // transparency 
+    config.alphaMode = CompositeAlphaMode::Auto;
+
+    surface.configure(config);
+}
+
 void Application::InitializeBuffers() {
 	
     
@@ -691,13 +737,16 @@ void Application::InitializeBindGroups() {
 
 void Application::InitializeDepthTexture()
 {
+    int width, height;
+    glfwGetFramebufferSize(window, &width, &height);
+
     // depth texture
     TextureDescriptor depthTextureDesc;
     depthTextureDesc.dimension = TextureDimension::_2D;
     depthTextureDesc.format = depthTextureFormat;
     depthTextureDesc.mipLevelCount = 1;
     depthTextureDesc.sampleCount = 1;
-    depthTextureDesc.size = { 640, 480, 1 };
+    depthTextureDesc.size = { static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1 };
     depthTextureDesc.usage = TextureUsage::RenderAttachment;
     depthTextureDesc.viewFormatCount = 1;
     depthTextureDesc.viewFormats = (WGPUTextureFormat*)&depthTextureFormat;
@@ -713,47 +762,6 @@ void Application::InitializeDepthTexture()
     depthTextureViewDesc.dimension = TextureViewDimension::_2D;
     depthTextureViewDesc.format = depthTextureFormat;
     depthTextureView = depthTexture.createView(depthTextureViewDesc);
-
-
-    
-    
-    //std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
-    //int cellSize = 32;
-    //for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
-    //    for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
-    //        uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
-
-    //        float dx = i - textureDesc.size.width / 2.0f;
-    //        float dy = j - textureDesc.size.height / 2.0f;
-    //        int band = static_cast<int>(sqrtf(dx * dx + dy * dy) / 4) % 2; // ring size = 4px
-
-    //        uint8_t v = band ? 255 : 0; // alternate black/white
-    //        p[0] = v;
-    //        p[1] = v;
-    //        p[2] = v;
-    //        p[3] = 255;
-    //    }
-    //}
-    
-
-    /*ImageCopyTexture destination;
-    destination.texture = colorTexture;
-    destination.mipLevel = 0;
-    destination.origin = { 0, 0, 0 };
-    destination.aspect = TextureAspect::All;
-    TextureDataLayout source;
-    source.offset = 0;
-    source.bytesPerRow = 4 * textureDesc.size.width;
-    source.rowsPerImage = textureDesc.size.height;
-
-    queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);*/
-
-	// need this for binding
-	
-    //colorTextureView = colorTexture.createView(textureViewDesc);
-
-    /*colorTexture.destroy(); // TODO; end of scope so automatic?
-    texture.release();*/
 
 
     SamplerDescriptor samplerDesc;
@@ -810,23 +818,23 @@ Texture Application::getObjTexture(const std::filesystem::path& path, Device dev
 
 
     // LOADING MY OWN TEXTURE INSTEAD -------------------------------------------------------
-    std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
-    int cellSize = 32;
-    for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
-        for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
-            uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
+    //std::vector<uint8_t> pixels(4 * textureDesc.size.width * textureDesc.size.height);
+    //int cellSize = 32;
+    //for (uint32_t i = 0; i < textureDesc.size.width; ++i) {
+    //    for (uint32_t j = 0; j < textureDesc.size.height; ++j) {
+    //        uint8_t* p = &pixels[4 * (j * textureDesc.size.width + i)];
 
-            float dx = i - textureDesc.size.width / 2.0f;
-            float dy = j - textureDesc.size.height / 2.0f;
-            int band = static_cast<int>(sqrtf(dx * dx + dy * dy) / 4) % 2; // ring size = 4px
+    //        float dx = i - textureDesc.size.width / 2.0f;
+    //        float dy = j - textureDesc.size.height / 2.0f;
+    //        int band = static_cast<int>(sqrtf(dx * dx + dy * dy) / 4) % 2; // ring size = 4px
 
-            uint8_t v = band ? 255 : 0; // alternate black/white
-            p[0] = v;
-            p[1] = v;
-            p[2] = v;
-            p[3] = 255;
-        }
-    }
+    //        uint8_t v = band ? 255 : 0; // alternate black/white
+    //        p[0] = v;
+    //        p[1] = v;
+    //        p[2] = v;
+    //        p[3] = 255;
+    //    }
+    //}
 	// queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);
     // ----------------------------------------------------------------------------------------------
     
@@ -849,5 +857,20 @@ Texture Application::getObjTexture(const std::filesystem::path& path, Device dev
     
 
     return colorTexture;
+}
+
+void Application::reSizeScreen()
+{
+    // terminate depth texture & surface
+	depthTextureView.release();
+	depthTexture.destroy();
+	depthTexture.release();
+    surface.unconfigure();
+    // surface.release(); DONT
+
+    InitializeDepthTexture();
+    InitializeSurface();
+
+   
 }
 
