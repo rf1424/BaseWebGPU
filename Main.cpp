@@ -100,13 +100,11 @@ private:
 };
 
 
-
-
 void Application::updateViewMatrix() {
     // call camera's view matrix function
 	glm::mat4x4 viewMatrix;
 	viewCamera.getViewMatrix(viewMatrix);
-
+    // send to shader
     queue.writeBuffer(
         uniformBuffer,
         offsetof(Uniforms, viewMatrix),
@@ -767,12 +765,14 @@ void Application::InitializeBuffers() {
     Uniforms uniforms;
     uniforms.time = 1.0f;
 
-    uniforms.viewMatrix = glm::lookAt(
+    viewCamera.getViewMatrix(uniforms.viewMatrix);
+	viewCamera.getProjMatrix(uniforms.projMatrix);
+    /*uniforms.viewMatrix = glm::lookAt(
         glm::vec3(0, 0.2, 0.5),
         glm::vec3(0, 0.15, 0),
         glm::vec3(0, 1, 0)
-    );
-    uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 1000.0f);
+    );*/
+    //uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 1000.0f);
     uniforms.modelMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
     
     queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(Uniforms));

@@ -19,7 +19,7 @@ bool FileManagement::getObjGeometry(const std::filesystem::path& path, std::vect
     if (!reader.Warning().empty()) {
         std::cout << "TinyObjReader: " << reader.Warning() << std::endl;
     }
-
+    // populate these
     const auto& attrib = reader.GetAttrib();
     const auto& shapes = reader.GetShapes();
     const auto& materials = reader.GetMaterials();
