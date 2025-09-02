@@ -25,6 +25,9 @@ add_executable(App
 
     FileManagement.h
     FileManagement.cpp
+
+    Camera.h
+    Camera.cpp
 )
 
 # Add the 'webgpu' target as a dependency of our App

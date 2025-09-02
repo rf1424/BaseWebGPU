@@ -18,6 +18,8 @@
 #include <glfw3webgpu.h>
 #include <glm/ext.hpp>
 
+#include "Camera.h"
+
 
 
 // Emscripten
@@ -27,18 +29,6 @@
 
 using namespace wgpu;
 
-
-// camera class, here for now
-class Camera {
-private :
-    glm::vec3 pos;
-    float fov;
-    int width;
-    int height;
-    float nearClip;
-    float farClip;
-    float AR;
-};
 
 class Application {
 public:
@@ -86,6 +76,8 @@ private:
 
     TextureView colorTextureView; // TODO: how about textureformat?
 	Sampler sampler;
+
+    Camera viewCamera;
 private:
     TextureView GetNextSurfaceTextureView();
     void InitializePipeline();
@@ -95,8 +87,73 @@ private:
     void InitializeBindGroups();
     void InitializeDepthTexture();
     Texture getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView = nullptr);
+
+    // camera stuff
     void reSizeScreen();
+    
+    
+    void updateViewMatrix();
+    
+    void onClick(int button, int action, int);
+    void onDrag(double xpos, double ypos);
+    void onScroll(double xoffset, double yoffset);
 };
+
+
+
+
+void Application::updateViewMatrix() {
+    // call camera's view matrix function
+	glm::mat4x4 viewMatrix;
+	viewCamera.getViewMatrix(viewMatrix);
+
+    queue.writeBuffer(
+        uniformBuffer,
+        offsetof(Uniforms, viewMatrix),
+        &viewMatrix,
+        sizeof(Uniforms::viewMatrix)
+    );
+}
+
+
+void Application::onClick(int button, int action, int) {
+    if (button == GLFW_MOUSE_BUTTON_LEFT) {
+        switch (action) {
+        case GLFW_PRESS:
+            // start dragging
+            viewCamera.dragState.dragging = true;
+            double xpos, ypos;
+            glfwGetCursorPos(window, &xpos, &ypos);
+            viewCamera.dragState.startMousePos = glm::vec2(-(float)xpos, (float)ypos); // TODO - ?
+            viewCamera.dragState.startCameraAngles = viewCamera.angles;
+            break;
+
+        case GLFW_RELEASE:
+            // stop dragging
+            viewCamera.dragState.dragging = false;
+            break;
+        }
+    }
+}
+
+void Application::onDrag(double xpos, double ypos) {
+    if (!viewCamera.dragState.dragging) return;
+    glm::vec2 currMousePos = glm::vec2(-(float)xpos, (float)ypos);
+    glm::vec2 offset = currMousePos - viewCamera.dragState.startMousePos;
+    viewCamera.angles = viewCamera.dragState.startCameraAngles + offset * 0.01f;
+    viewCamera.angles.y = glm::clamp(
+        viewCamera.angles.y,
+        -3.14159f / 2 + 1e-5f,
+        3.14159f / 2 - 1e-5f
+    );
+    updateViewMatrix();
+}
+
+void Application::onScroll(double xoffset, double yoffset) {
+    viewCamera.zoom += yoffset * 0.1f;
+    viewCamera.zoom = glm::clamp(viewCamera.zoom, -2.0f, 2.0f);
+    updateViewMatrix();
+}
 
 int main() {
     Application app;
@@ -151,6 +208,23 @@ bool Application::Initialize() {
         };
 	// finally set the callback!
 	glfwSetFramebufferSizeCallback(window, resizeCallback);
+
+    glfwSetCursorPosCallback(window, [](GLFWwindow* window, double xpos, double ypos) {
+        // get application instance
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onDrag(xpos, ypos);
+        });
+    glfwSetMouseButtonCallback(window, [](GLFWwindow* window, int button, int action, int mods) {
+        // get application instance
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onClick(button, action, mods);
+        });
+    glfwSetScrollCallback(window, [](GLFWwindow* window, double xoffset, double yoffset) {
+        // get application instance
+        auto that = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
+        if (that != nullptr) that->onScroll(xoffset, yoffset);
+        });
+
 
     // INSTANCE SETUP ----------------------------------------------------------------------------------------------
     // create a descriptor
