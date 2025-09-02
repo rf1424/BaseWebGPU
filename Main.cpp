@@ -65,7 +65,7 @@ private:
         // padding
         float padding[3]; // time + pad = 16 bytes for alignment!
     };
-    
+
     uint32_t indexCount = 0;
 
     //depth setup
@@ -75,7 +75,7 @@ private:
 
 
     TextureView colorTextureView; // TODO: how about textureformat?
-	Sampler sampler;
+    Sampler sampler;
 
     Camera viewCamera;
 private:
@@ -90,10 +90,10 @@ private:
 
     // camera stuff
     void reSizeScreen();
-    
-    
+
+
     void updateViewMatrix();
-    
+
     void onClick(int button, int action, int);
     void onDrag(double xpos, double ypos);
     void onScroll(double xoffset, double yoffset);
@@ -102,8 +102,8 @@ private:
 
 void Application::updateViewMatrix() {
     // call camera's view matrix function
-	glm::mat4x4 viewMatrix;
-	viewCamera.getViewMatrix(viewMatrix);
+    glm::mat4x4 viewMatrix;
+    viewCamera.getViewMatrix(viewMatrix);
     // send to shader
     queue.writeBuffer(
         uniformBuffer,
@@ -197,15 +197,15 @@ bool Application::Initialize() {
     // set user pointer to access application instance in callbacks
     glfwSetWindowUserPointer(window, this);
 
-	// create lambda function for resize callback using pointer to App
-	// must be a NON-Capturing lambda to be converted to function pointer
+    // create lambda function for resize callback using pointer to App
+    // must be a NON-Capturing lambda to be converted to function pointer
     auto resizeCallback = [](GLFWwindow* window, int width, int height) {
         // get application instance
         Application* appPtr = reinterpret_cast<Application*>(glfwGetWindowUserPointer(window));
         if (appPtr) appPtr->reSizeScreen();
         };
-	// finally set the callback!
-	glfwSetFramebufferSizeCallback(window, resizeCallback);
+    // finally set the callback!
+    glfwSetFramebufferSizeCallback(window, resizeCallback);
 
     glfwSetCursorPosCallback(window, [](GLFWwindow* window, double xpos, double ypos) {
         // get application instance
@@ -291,7 +291,7 @@ bool Application::Initialize() {
     std::cout << "Got device: " << device << std::endl;
 
 
-    
+
     uncapturedErrorCallbackHandle = device.setUncapturedErrorCallback(
         [](ErrorType type, char const* message) {
             std::cout << "Uncaptured error callback: " << type;
@@ -346,7 +346,7 @@ bool Application::Initialize() {
 }
 
 void Application::Terminate() {
-    
+
 
     // indexBuffer.release();
     vertexBuffer.release();
@@ -360,7 +360,7 @@ void Application::Terminate() {
     depthTexture.destroy();
     depthTexture.release();
 
-	colorTextureView.release();
+    colorTextureView.release();
 
     adapter.release();
     surface.unconfigure();
@@ -376,7 +376,7 @@ void Application::MainLoop() {
     glfwPollEvents();
 
     //update uniforms
-    float t = static_cast<float>(glfwGetTime()); 
+    float t = static_cast<float>(glfwGetTime());
     queue.writeBuffer(uniformBuffer, sizeof(glm::mat4x4) * 3., &t, sizeof(float)); // offset for mvp
     //glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
     ////glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(1, 0, 0));
@@ -390,7 +390,7 @@ void Application::MainLoop() {
     // next target texture view
     TextureView targetView = GetNextSurfaceTextureView();
     if (!targetView) return;
-    
+
     // encoder for render pass
     CommandEncoderDescriptor encoderDesc = {};
     encoderDesc.nextInChain = nullptr;
@@ -416,8 +416,8 @@ void Application::MainLoop() {
     renderPassDesc.colorAttachments = &renderPassColorAttachment;
 
     // for depth buffer
-    RenderPassDepthStencilAttachment depthStencilAttachment; 
-	depthStencilAttachment.view = depthTextureView; // created in InitializeDepthTexture()
+    RenderPassDepthStencilAttachment depthStencilAttachment;
+    depthStencilAttachment.view = depthTextureView; // created in InitializeDepthTexture()
     depthStencilAttachment.depthClearValue = 1.0f;
     depthStencilAttachment.depthLoadOp = LoadOp::Clear;
     depthStencilAttachment.depthStoreOp = StoreOp::Store;
@@ -429,7 +429,7 @@ void Application::MainLoop() {
     depthStencilAttachment.stencilLoadOp = LoadOp::Clear;
     depthStencilAttachment.stencilStoreOp = StoreOp::Store;
     depthStencilAttachment.stencilReadOnly = true;*/
-	renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
+    renderPassDesc.depthStencilAttachment = &depthStencilAttachment;
 
     // TODO: necessary for DAWN maybe?
     /*constexpr auto NaNf = std::numeric_limits<float>::quiet_NaN();
@@ -441,7 +441,7 @@ void Application::MainLoop() {
     RenderPassEncoder renderPass = encoder.beginRenderPass(renderPassDesc);
     renderPass.setPipeline(pipeline);
     renderPass.setVertexBuffer(0, vertexBuffer, 0, vertexBuffer.getSize());
-	// renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexBuffer.getSize());
+    // renderPass.setIndexBuffer(indexBuffer, IndexFormat::Uint16, 0, indexBuffer.getSize());
     renderPass.setBindGroup(0, bindGroup, 0, nullptr);
     // renderPass.drawIndexed(indexCount, 1, 0, 0, 0);
     renderPass.draw(indexCount, 1, 0, 0);
@@ -646,7 +646,7 @@ void Application::InitializePipeline() {
     samplerBindingLayout.binding = 2;
     samplerBindingLayout.visibility = ShaderStage::Fragment;
     samplerBindingLayout.sampler.type = SamplerBindingType::Filtering;
-    
+
     // Binding group of binding layout
     BindGroupLayoutDescriptor bindGroupLayoutDesc{};
     bindGroupLayoutDesc.entryCount = (uint32_t)bindingLayoutEntries.size();
@@ -730,10 +730,10 @@ void Application::InitializeSurface()
 }
 
 void Application::InitializeBuffers() {
-	
-    
+
+
     std::vector<VertexAttr> verticesList;
-	bool success = FileManagement::getObjGeometry("../files/Lidded_Ewer.obj", verticesList);
+    bool success = FileManagement::getObjGeometry("../files/Lidded_Ewer.obj", verticesList);
     if (!success) {
         std::cerr << "Could not load geometry!" << std::endl;
         exit(1);
@@ -750,7 +750,7 @@ void Application::InitializeBuffers() {
     bufferDesc.mappedAtCreation = false;
 
     vertexBuffer = device.createBuffer(bufferDesc);
-	queue.writeBuffer(vertexBuffer, 0, verticesList.data(), bufferDesc.size);
+    queue.writeBuffer(vertexBuffer, 0, verticesList.data(), bufferDesc.size);
 
     // UNIFORM BUFFER
     BufferDescriptor uniformBufferDesc;
@@ -760,13 +760,13 @@ void Application::InitializeBuffers() {
     uniformBufferDesc.size = (uniformBufferDesc.size + 3) & ~3; // align to 4 bytes
     uniformBufferDesc.mappedAtCreation = false;
 
-	uniformBuffer = device.createBuffer(uniformBufferDesc);
-    
+    uniformBuffer = device.createBuffer(uniformBufferDesc);
+
     Uniforms uniforms;
     uniforms.time = 1.0f;
 
     viewCamera.getViewMatrix(uniforms.viewMatrix);
-	viewCamera.getProjMatrix(uniforms.projMatrix);
+    viewCamera.getProjMatrix(uniforms.projMatrix);
     /*uniforms.viewMatrix = glm::lookAt(
         glm::vec3(0, 0.2, 0.5),
         glm::vec3(0, 0.15, 0),
@@ -774,7 +774,7 @@ void Application::InitializeBuffers() {
     );*/
     //uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 1000.0f);
     uniforms.modelMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
-    
+
     queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(Uniforms));
 }
 
@@ -793,15 +793,15 @@ void Application::InitializeBindGroups() {
     textureBinding.textureView = colorTextureView;
 
     // SAMPLER
-	BindGroupEntry samplerBinding{};
-	samplerBinding.binding = 2;
-	samplerBinding.sampler = sampler;
+    BindGroupEntry samplerBinding{};
+    samplerBinding.binding = 2;
+    samplerBinding.sampler = sampler;
 
 
     std::vector<BindGroupEntry> bindingEntries(3);
     bindingEntries[0] = binding;
     bindingEntries[1] = textureBinding;
-	bindingEntries[2] = samplerBinding;
+    bindingEntries[2] = samplerBinding;
     BindGroupDescriptor bindGroupDesc{};
     bindGroupDesc.layout = bindGroupLayout; // defined in layer pipeline
     bindGroupDesc.entryCount = (uint32_t)bindingEntries.size();
@@ -854,10 +854,10 @@ void Application::InitializeDepthTexture()
 
 Texture Application::getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView)
 {
-    
+
     int width, height, channels;
     unsigned char* data = stbi_load(path.string().c_str(), &width, &height, &channels, 4); // 4 rgba
-    
+
     if (nullptr == data) return nullptr;
 
 
@@ -909,9 +909,9 @@ Texture Application::getObjTexture(const std::filesystem::path& path, Device dev
     //        p[3] = 255;
     //    }
     //}
-	// queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);
+    // queue.writeTexture(destination, pixels.data(), pixels.size(), source, textureDesc.size);
     // ----------------------------------------------------------------------------------------------
-    
+
     // release
     stbi_image_free(data);
 
@@ -926,9 +926,9 @@ Texture Application::getObjTexture(const std::filesystem::path& path, Device dev
         textureViewDesc.dimension = TextureViewDimension::_2D;
         textureViewDesc.format = textureDesc.format;
 
-		*textureView = colorTexture.createView(textureViewDesc);
+        *textureView = colorTexture.createView(textureViewDesc);
     }
-    
+
 
     return colorTexture;
 }
@@ -936,15 +936,14 @@ Texture Application::getObjTexture(const std::filesystem::path& path, Device dev
 void Application::reSizeScreen()
 {
     // terminate depth texture & surface
-	depthTextureView.release();
-	depthTexture.destroy();
-	depthTexture.release();
+    depthTextureView.release();
+    depthTexture.destroy();
+    depthTexture.release();
     surface.unconfigure();
     // surface.release(); DONT
 
     InitializeDepthTexture();
     InitializeSurface();
 
-   
-}
 
+}
