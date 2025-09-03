@@ -12,6 +12,11 @@
 
 
 #### Basic Shading
+<figure>
+  <img src="images/basicLighting.png" alt="" width="300">
+  <figcaption>basic lighting</figcaption>
+</figure>
+
 ![](readmeImages/basicLighting.png)
 ![](readmeImages/normals.png)
 
@@ -24,7 +29,7 @@
 - Vertex pipeline, primitive pipeline, vertex/fragment shaders
 
 First triangle(s)
-![First Triangles](images/firstTriangles.png)
+![](images/firstTriangles.png)
 
 #### Environment Setup
 - Conigure with CMake, Visual Studio, and C++, Dawn.
