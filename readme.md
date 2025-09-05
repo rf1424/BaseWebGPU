@@ -1,41 +1,36 @@
+### Implementation Log
+##### Camera control with Mouse
+##### Window Resizing
 
-# Implementation Log
+##### Tiny Obj Loading + Texturing
+<img src="readmeImages/liddedEwer.png" width="200"/>
 
-#### Camera control with Mouse
+##### Basic Shading
+<img src="readmeImages/normals.png" width="200"/> <img src="readmeImages/basicLighting.png" width="200"/> 
 
-#### Window Resizing
+##### 2D to 3D
+<img src="readmeImages/rotate.gif" width="200"/>
 
-#### Tiny Obj Loading
-![](readmeImages/liddedEwer.png)
+##### Buffers and Uniforms
 
-#### Texturing
+<img src="readmeImages/buffers.png" width="200"/>
 
-
-#### Basic Shading
-![](readmeImages/basicLighting.png)
-![](readmeImages/normals.png)
-
-#### 2D to 3D
-![](readmeImages/rotate.gif)
-
-#### Buffers and Uniforms
-![](readmeImages/buffers.png)
-#### Render Pipeline configuration
+##### Render Pipeline configuration
 - Vertex pipeline, primitive pipeline, vertex/fragment shaders
 
-First triangle(s)
-![](readmeImages/firstTriangles.png)
+ 
+<img src="readmeImages/firstTriangles.png" width="200"/>
 
-#### Environment Setup
+##### Environment Setup
 - Conigure with CMake, Visual Studio, and C++, Dawn.
 - Set up adapter, device, command queue.
 - Create a window with GLFW.
 - Refactor with C++ Wrapper Configuration: https://github.com/eliemichel/WebGPU-Cpp 
 
-## Dependencies
+### Dependencies
 - `wgpu`
 - `glfw`
 - `glm`
 - `tiny_obj_loader`
 
-## References
+### References
