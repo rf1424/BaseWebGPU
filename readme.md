@@ -11,8 +11,13 @@ I plan to add:
 
 
 ##### BSDF / Physically based Rendering with Point Lights
-<img src="readmeImages/ewer_pointLightPBR.png" width="200"/>
+<img src="readmeImages/ewer_pointLightPBR.png" width="200"/>  
+<br>
 <img src="readmeImages/r0.1m0.1.png" width="200"/>
+<img src="readmeImages/r0.1m0.9.png" width="200"/>
+<img src="readmeImages/r0.9m0.1.png" width="200"/>
+<img src="readmeImages/r0.9m0.9.png" width="200"/>
+
 ##### Camera control with Mouse
 ##### Window Resizing
 
