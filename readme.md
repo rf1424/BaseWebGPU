@@ -1,4 +1,18 @@
 ### Implementation Log
+
+This is a personal project to build a rendering engine in WebGPU from scratch.
+After taking a few computer graphics courses in OpenGL, I wanted to learn a more modern graphics API and 
+implement graphics techniques I was interested in.
+
+So far I have implemented physical based lighting with point lights, and
+I plan to add:
+- Environment maps/image based lighting
+- Glass / transparent PBR material
+
+
+##### BSDF / Physically based Rendering with Point Lights
+<img src="readmeImages/ewer_pointLightPBR.png" width="200"/>
+<img src="readmeImages/r0.1m0.1.png" width="200"/>
 ##### Camera control with Mouse
 ##### Window Resizing
 
