@@ -41,9 +41,11 @@ private:
         glm::mat4x4 projMatrix; // alignment: 16
         glm::mat4x4 viewMatrix;
         glm::mat4x4 modelMatrix;
+        glm::mat4x4 modelInvTranspose;
         float time;
-        // padding
-        float padding[3]; // time + pad = 16 bytes for alignment!
+        float padding[3]; // padding: time + pad = 16 bytes for alignment!
+        glm::vec3 cameraPos;
+		float padding1; // cameraPos + pad1 = 16 bytes for alignment!
     };
 
     uint32_t indexCount = 0;

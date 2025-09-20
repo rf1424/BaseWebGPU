@@ -170,7 +170,7 @@ bool Application::Initialize() {
     InitializeBuffers();
     InitializeDepthTexture();
 
-    Texture colorTexture = getObjTexture("../files/Lidded_Ewer.jpeg", device, &colorTextureView);
+    Texture colorTexture = getObjTexture("../files/wahoo.bmp", device, &colorTextureView);
     if (!colorTexture) {
         std::cerr << "Could not load texture!" << std::endl;
     }
@@ -212,15 +212,15 @@ void Application::MainLoop() {
 
     //update uniforms
     float t = static_cast<float>(glfwGetTime());
-    queue.writeBuffer(uniformBuffer, sizeof(glm::mat4x4) * 3., &t, sizeof(float)); // offset for mvp
+    queue.writeBuffer(uniformBuffer, offsetof(Uniforms, time), &t, sizeof(float)); // offset for mvp
     //glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
     ////glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(1, 0, 0));
     //glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), t, glm::vec3(1, 0, 0));
     //model *= model2;
 
-    glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), t, glm::vec3(0, 1, 0));
-
-    queue.writeBuffer(uniformBuffer, offsetof(Uniforms, modelMatrix), &model, sizeof(glm::mat4x4));
+    // rotate about y
+    //glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), t, glm::vec3(0, 1, 0));
+    //queue.writeBuffer(uniformBuffer, offsetof(Uniforms, modelMatrix), &model, sizeof(glm::mat4x4));
 
     // next target texture view
     TextureView targetView = GetNextSurfaceTextureView();
@@ -242,7 +242,7 @@ void Application::MainLoop() {
 
     renderPassColorAttachment.loadOp = LoadOp::Clear; // operation before render pass
     renderPassColorAttachment.storeOp = StoreOp::Store; // operation after rendre pass
-    // renderPassColorAttachment.clearValue = Color{ 1., 0., 0., 1.0 };
+    // renderPassColorAttachment.clearValue = Color{ 0.5, 0.5, 0.5, 1.0 };
 #ifndef WEBGPU_BACKEND_WGPU
     renderPassColorAttachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
 #endif // NOT WEBGPU_BACKEND_WGPU
@@ -566,9 +566,9 @@ void Application::InitializeSurface()
 
 void Application::InitializeBuffers() {
 
-
     std::vector<VertexAttr> verticesList;
-    bool success = FileManagement::getObjGeometry("../files/Lidded_Ewer.obj", verticesList);
+    bool success = FileManagement::getObjGeometry("../files/sphere.obj", verticesList);
+    //bool success = FileManagement::getObjGeometry("../files/wahoo.obj", verticesList);
     if (!success) {
         std::cerr << "Could not load geometry!" << std::endl;
         exit(1);
@@ -602,14 +602,16 @@ void Application::InitializeBuffers() {
 
     viewCamera.getViewMatrix(uniforms.viewMatrix);
     viewCamera.getProjMatrix(uniforms.projMatrix);
-    /*uniforms.viewMatrix = glm::lookAt(
-        glm::vec3(0, 0.2, 0.5),
-        glm::vec3(0, 0.15, 0),
-        glm::vec3(0, 1, 0)
-    );*/
-    //uniforms.projMatrix = glm::perspective(glm::radians(45.0f), 640.0f / 480.0f, 0.1f, 1000.0f);
+    
     uniforms.modelMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
-
+    /*uniforms.modelMatrix =
+        glm::scale(
+            glm::rotate(glm::mat4(1.0f),
+                glm::radians(45.0f),
+                glm::vec3(0, 1, 0)),
+            glm::vec3(0.05f));*/
+	uniforms.modelInvTranspose = glm::inverseTranspose(uniforms.modelMatrix);
+	uniforms.cameraPos = viewCamera.getPosition();
     queue.writeBuffer(uniformBuffer, 0, &uniforms, sizeof(Uniforms));
 }
 
