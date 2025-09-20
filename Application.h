@@ -58,6 +58,9 @@ private:
     TextureView colorTextureView; // TODO: textureformat?
     Sampler sampler;
 
+    Texture cubemap;
+	TextureView cubemapTextureView;
+
     Camera viewCamera;
 
 
@@ -69,6 +72,7 @@ private:
     void InitializeBuffers();
     void InitializeBindGroups();
     void InitializeDepthTexture();
+    Texture InitializeCubeMapTexture(const std::filesystem::path& basePath, TextureView* textureView = nullptr);
     Texture getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView = nullptr);
 
     void reSizeScreen();

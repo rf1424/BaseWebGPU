@@ -19,6 +19,7 @@ public:
         const std::filesystem::path& filepath,
         wgpu::Device device
     );
+
 private:
 
 };

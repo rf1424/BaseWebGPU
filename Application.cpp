@@ -172,7 +172,12 @@ bool Application::Initialize() {
 
     Texture colorTexture = getObjTexture("../files/wahoo.bmp", device, &colorTextureView);
     if (!colorTexture) {
-        std::cerr << "Could not load texture!" << std::endl;
+        std::cerr << "Could not load obj texture!" << std::endl;
+    }
+
+	Texture cubemapTexture = InitializeCubeMapTexture("../files/autumn_park_4k", & cubemapTextureView);
+    if (!cubemapTexture) {
+        std::cerr << "Could not load cubemap texture" << std::endl;
     }
 
     InitializeBindGroups(); // after buffers are created and passed
@@ -460,27 +465,34 @@ void Application::InitializePipeline() {
 
     // define pipeline layout (describe pipeline resources)
     // Uniforms Binding Layout
-    std::vector<BindGroupLayoutEntry> bindingLayoutEntries(3, Default); // Default sets buffer, sampler, etc. to undefined
+    std::vector<BindGroupLayoutEntry> bindingLayoutEntries(4, Default); // Default sets buffer, sampler, etc. to undefined
 
     // 0. Uniforms
     BindGroupLayoutEntry& bindingLayout = bindingLayoutEntries[0];
     bindingLayout.binding = 0;// binding index, same as attrubute used in shader for uTime
     bindingLayout.visibility = ShaderStage::Vertex | ShaderStage::Fragment;
     bindingLayout.buffer.type = BufferBindingType::Uniform; // 1. undefined -> BUFFER
-    bindingLayout.buffer.minBindingSize = sizeof(Uniforms);
+    bindingLayout.buffer.minBindingSize = sizeof(Uniforms); 
 
     // 1. Texture Binding Layout
     BindGroupLayoutEntry& textureBindingLayout = bindingLayoutEntries[1];
     textureBindingLayout.binding = 1;
     textureBindingLayout.visibility = ShaderStage::Fragment;
-    textureBindingLayout.texture.sampleType = TextureSampleType::Float;
-    textureBindingLayout.texture.viewDimension = TextureViewDimension::_2D;
+	textureBindingLayout.texture.sampleType = TextureSampleType::Float;// 1. undefined -> TEXTURE
+    textureBindingLayout.texture.viewDimension = TextureViewDimension::_2D; 
 
     // 2. Sampler
     BindGroupLayoutEntry& samplerBindingLayout = bindingLayoutEntries[2];
     samplerBindingLayout.binding = 2;
     samplerBindingLayout.visibility = ShaderStage::Fragment;
     samplerBindingLayout.sampler.type = SamplerBindingType::Filtering;
+
+	// 3. Cube-map Texture Binding Layout
+	BindGroupLayoutEntry& cubemapBindingLayout = bindingLayoutEntries[3];
+	cubemapBindingLayout.binding = 3;
+	cubemapBindingLayout.visibility = ShaderStage::Fragment;
+	cubemapBindingLayout.texture.sampleType = TextureSampleType::Float;
+	cubemapBindingLayout.texture.viewDimension = TextureViewDimension::Cube;
 
     // Binding group of binding layout
     BindGroupLayoutDescriptor bindGroupLayoutDesc{};
@@ -624,7 +636,7 @@ void Application::InitializeBindGroups() {
     binding.offset = 0;
     binding.size = sizeof(Uniforms);
 
-    // TEXTURE
+    // OBJ COLOR TEXTURE
     BindGroupEntry textureBinding{}; // TODO: other specidications?????
     textureBinding.binding = 1;
     textureBinding.textureView = colorTextureView;
@@ -634,11 +646,16 @@ void Application::InitializeBindGroups() {
     samplerBinding.binding = 2;
     samplerBinding.sampler = sampler;
 
+    // CUBE-MAP TEXTURE
+	BindGroupEntry cubemapBinding{};
+	cubemapBinding.binding = 3;
+	cubemapBinding.textureView = cubemapTextureView;
 
-    std::vector<BindGroupEntry> bindingEntries(3);
+    std::vector<BindGroupEntry> bindingEntries(4);
     bindingEntries[0] = binding;
     bindingEntries[1] = textureBinding;
     bindingEntries[2] = samplerBinding;
+	bindingEntries[3] = cubemapBinding;
     BindGroupDescriptor bindGroupDesc{};
     bindGroupDesc.layout = bindGroupLayout; // defined in layer pipeline
     bindGroupDesc.entryCount = (uint32_t)bindingEntries.size();
@@ -689,6 +706,91 @@ void Application::InitializeDepthTexture()
     sampler = device.createSampler(samplerDesc);
 }
 
+
+Texture Application::InitializeCubeMapTexture(const std::filesystem::path& basePath, TextureView* CMtextureView) {
+    // address to 6 images (TODO: hard-coded) + STBI Loading
+    const char* cubemapPaths[] = {
+        "cubemap-posX.png",
+        "cubemap-negX.png",
+        "cubemap-posY.png",
+        "cubemap-negY.png",
+        "cubemap-posZ.png",
+        "cubemap-negZ.png",
+    };
+    Extent3D cubemapSize = { 0, 0, 6 };
+    std::array<uint8_t*, 6> cubemapData;
+
+    for (uint32_t layer = 0; layer < 6; ++layer) {
+
+        auto fullPath = basePath / cubemapPaths[layer];
+        int width, height, channels;
+		cubemapData[layer] = stbi_load(fullPath.string().c_str(), &width, &height, &channels, 4); // 4 rgba
+
+        if (layer == 0) {
+            cubemapSize.width = (uint32_t)width;
+            cubemapSize.height = (uint32_t)height;
+        }
+		if (cubemapData[layer] == nullptr) {
+            for (uint32_t i = 0; i < layer; ++i) {
+                stbi_image_free(cubemapData[i]);
+            }
+			std::cerr << "Could not load  cube texture " << cubemapPaths[layer] << std::endl;
+			return nullptr;
+		}
+    }
+
+	// create texture descriptor
+	unsigned int size = cubemapSize.width; // assume square
+    TextureDescriptor textureDesc;
+	textureDesc.dimension = TextureDimension::_2D; // case A: 2d texture * 6 layers STORAGE
+    textureDesc.format = WGPUTextureFormat_RGBA8Unorm;
+    textureDesc.mipLevelCount = 1;
+    textureDesc.sampleCount = 1;
+    textureDesc.size = { size, size, 6 };
+    textureDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst; // shader binding & copy from CPU
+    textureDesc.viewFormatCount = 0; // no alternate formats for texture view
+    textureDesc.viewFormats = nullptr;
+
+	Texture cubeTexture = device.createTexture(textureDesc);
+
+	ImageCopyTexture destination;
+	destination.texture = cubeTexture;
+	destination.mipLevel = 0;
+	destination.origin = { 0, 0, 0 };
+	destination.aspect = TextureAspect::All;
+
+	TextureDataLayout source;
+	source.offset = 0;
+	source.bytesPerRow = 4 * size; // 4 bytes per pixel
+	source.rowsPerImage = size;
+        
+
+    // send to GPU
+    Extent3D singleLayerSize = { size, size, 1 };
+    for (uint32_t layer = 0; layer < 6; ++layer) {  
+        destination.origin = { 0, 0, layer };
+        queue.writeTexture(destination, cubemapData[layer], (size_t)(4 * size * size), source, singleLayerSize); // TODO singleLayerSize
+		stbi_image_free(cubemapData[layer]);
+    }
+
+    // create texture view
+    if (CMtextureView) { // check if pointer was provided
+        // texture view
+        TextureViewDescriptor textureViewDesc;
+        textureViewDesc.aspect = TextureAspect::All;
+        textureViewDesc.baseArrayLayer = 0;
+        textureViewDesc.arrayLayerCount = 6;
+        textureViewDesc.baseMipLevel = 0;
+        textureViewDesc.mipLevelCount = 1;
+        textureViewDesc.dimension = TextureViewDimension::Cube; // case B: CUBE is how the shader should INTERPRET texture
+        textureViewDesc.format = textureDesc.format;
+
+        *CMtextureView = cubeTexture.createView(textureViewDesc);
+    }
+
+    return cubeTexture;
+}
+
 Texture Application::getObjTexture(const std::filesystem::path& path, Device device, TextureView* textureView)
 {
 
@@ -703,7 +805,6 @@ Texture Application::getObjTexture(const std::filesystem::path& path, Device dev
     textureDesc.dimension = TextureDimension::_2D;
     textureDesc.format = WGPUTextureFormat_RGBA8Unorm; // unsigned, normalized 0-1
     textureDesc.mipLevelCount = 1;
-    textureDesc.sampleCount = 1;
     textureDesc.sampleCount = 1;
     textureDesc.size = { (unsigned int)width, (unsigned int)height, 1 };
     textureDesc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst; // shader binding & copy from CPU

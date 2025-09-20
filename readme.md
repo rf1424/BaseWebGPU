@@ -53,3 +53,7 @@ I plan to add:
 - `tiny_obj_loader`
 
 ### References
+
+https://eliemichel.github.io/LearnWebGPU/index.html
+https://learnopengl.com/PBR/Lighting
+
