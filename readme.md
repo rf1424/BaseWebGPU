@@ -11,10 +11,8 @@ I plan to add:
 
 
 ##### BSDF / Physically based Rendering with Point Lights
-<img src="readmeImages/ewer_pointLightPBR.png" width="400"/>  
-<br>
-<img src="readmeImages/r0.1m0.1.png" width="200"/> <img src="readmeImages/r0.1m0.9.png" width="200"/>
-<br>
+<img src="readmeImages/ewer_pointLightPBR.png" width="400"/></br>
+<img src="readmeImages/r0.1m0.1.png" width="200"/> <img src="readmeImages/r0.1m0.9.png" width="200"/></br>
 <img src="readmeImages/r0.9m0.1.png" width="200"/> <img src="readmeImages/r0.9m0.9.png" width="200"/>
 
 ##### Camera control with Mouse
@@ -24,8 +22,7 @@ I plan to add:
 <img src="readmeImages/liddedEwer.png" width="400"/>
 
 ##### Basic Shading
-<img src="readmeImages/normals.png" width="200"/> <img src="readmeImages/basicLighting.png" width="200"/> 
-
+<img src="readmeImages/normals.png" width="200"/> <img src="readmeImages/basicLighting.png" width="200"/>
 ##### 2D to 3D
 <img src="readmeImages/rotate.gif" width="200"/>
 
