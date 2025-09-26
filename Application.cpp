@@ -175,7 +175,7 @@ bool Application::Initialize() {
         std::cerr << "Could not load obj texture!" << std::endl;
     }
 
-	Texture cubemapTexture = InitializeCubeMapTexture("../files/autumn_park_4k", & cubemapTextureView);
+	Texture cubemapTexture = InitializeCubeMapTexture("../files/venice_sunset", & cubemapTextureView);
     if (!cubemapTexture) {
         std::cerr << "Could not load cubemap texture" << std::endl;
     }
@@ -218,14 +218,7 @@ void Application::MainLoop() {
     //update uniforms
     float t = static_cast<float>(glfwGetTime());
     queue.writeBuffer(uniformBuffer, offsetof(Uniforms, time), &t, sizeof(float)); // offset for mvp
-    //glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0, 1, 0));
-    ////glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(1, 0, 0));
-    //glm::mat4x4 model2 = glm::rotate(glm::mat4(1.0f), t, glm::vec3(1, 0, 0));
-    //model *= model2;
-
-    // rotate about y
-    //glm::mat4x4 model = glm::rotate(glm::mat4(1.0f), t, glm::vec3(0, 1, 0));
-    //queue.writeBuffer(uniformBuffer, offsetof(Uniforms, modelMatrix), &model, sizeof(glm::mat4x4));
+    
 
     // next target texture view
     TextureView targetView = GetNextSurfaceTextureView();
@@ -710,12 +703,12 @@ void Application::InitializeDepthTexture()
 Texture Application::InitializeCubeMapTexture(const std::filesystem::path& basePath, TextureView* CMtextureView) {
     // address to 6 images (TODO: hard-coded) + STBI Loading
     const char* cubemapPaths[] = {
-        "cubemap-posX.png",
-        "cubemap-negX.png",
-        "cubemap-posY.png",
-        "cubemap-negY.png",
-        "cubemap-posZ.png",
-        "cubemap-negZ.png",
+        "posx.png",
+        "negx.png",
+        "posy.png",
+        "negy.png",
+        "posz.png",
+        "negz.png",
     };
     Extent3D cubemapSize = { 0, 0, 6 };
     std::array<uint8_t*, 6> cubemapData;

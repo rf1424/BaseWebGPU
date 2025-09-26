@@ -37,8 +37,9 @@ struct Uniforms {
 }
 
 @group(0) @binding(0) var<uniform> u_Uniforms: Uniforms;
-@group(0) @binding(1) var circleTexture: texture_2d<f32>;
+@group(0) @binding(1) var objTexture: texture_2d<f32>;
 @group(0) @binding(2) var textureSampler : sampler;
+@group(0) @binding(3) var cubemapTexture : texture_cube<f32>;
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
@@ -137,8 +138,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
     var color = vec3(0.5) * shading + vec3(0.5, 0.5, 0.1);
 
     // texturing
-    let texelUV = vec2i(in.uv * vec2f(textureDimensions(circleTexture))); // 0-1 -> 0-texture size
-    color = textureSample(circleTexture, textureSampler, in.uv).rgb;
+    let texelUV = vec2i(in.uv * vec2f(textureDimensions(objTexture))); // 0-1 -> 0-texture size
+    color = textureSample(objTexture, textureSampler, in.uv).rgb;
 
     // flat
     color = vec3f(0., 0.5, 0.5);
@@ -151,9 +152,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     let wo : vec3f = normalize(u_Uniforms.cameraPos - in.worldPos);
     var test : vec3f = computeLo(in.worldPos, in.normal, wo, color, lightPos);
+
     test += computeLo(in.worldPos, in.normal, wo, color, lightPos2);
     
     test = gammaCorrect(test);
 
-	return vec4f(test,  1.0);
+    // check spherical image map
+    let reflectedDir = -reflect(wo, in.normal);
+    let ibl_sample = textureSample(cubemapTexture, textureSampler, reflectedDir).rgb;
+
+	return vec4f(ibl_sample,  1.0);
 }   
