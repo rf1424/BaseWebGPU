@@ -11,7 +11,10 @@ I plan to add:
 
 
 ##### BSDF / Physically based Rendering with Point Lights
-<img src="readmeImages/ewer_pointLightPBR.png" width="400"/></br>
+<img src="readmeImages/sneakers.png" width="400"/>
+
+<img src="readmeImages/dino.png" width="400"/>
+
 <img src="readmeImages/r0.1m0.1.png" width="200"/> <img src="readmeImages/r0.1m0.9.png" width="200"/></br>
 <img src="readmeImages/r0.9m0.1.png" width="200"/> <img src="readmeImages/r0.9m0.9.png" width="200"/>
 
@@ -51,9 +54,11 @@ I plan to add:
 
 ##### References
 
-https://eliemichel.github.io/LearnWebGPU/index.html
-https://learnopengl.com/PBR/Lighting
+- https://eliemichel.github.io/LearnWebGPU/index.html
+- https://learnopengl.com/PBR/Lighting
 
 ##### Models and textures
 - https://sketchfab.com/3d-models/lidded-ritual-ewer-guang-c2898500387d40678d26d15d12809608
+- https://3d.si.edu/object/3d/triceratops-horridus-marsh-1889:d8c623be-4ebc-11ea-b77f-2e728ce88125
+- https://3d.si.edu/object/3d/pair-blue-sneakers-worn-wellington-webb-while-campaigning:3ab80a3a-6099-48f7-9861-c454daa048ef
 
